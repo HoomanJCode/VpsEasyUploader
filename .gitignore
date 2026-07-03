@@ -1,0 +1,43 @@
+# Environment configuration
+.env
+
+# Python virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Upload storage
+uploads/*
+!uploads/.gitkeep
+
+# Chunked upload data
+uploads/.chunks/
+
+# Generated thumbnails
+uploads/.thumbnails/
+
+# Authentication data
+auth.json
+
+# Temporary files
+*.tmp
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.pytest_cache/
+tests/__pycache__/
