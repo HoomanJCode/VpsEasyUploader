@@ -1,43 +1,89 @@
-# Environment configuration
+# =============================================================================
+# VpsEasyUploader — .gitignore
+# Verify with:  git check-ignore -v <path>
+# =============================================================================
+
+# ── Secrets & configuration (NEVER commit) ──────────────────────────────────
+# CRITICAL: .env contains SECRET_KEY and other runtime config.
+# Catch every variant: .env, .env.bak (from setup.sh reconfigure), .env.local,
+# .env.production, etc. The .env.example template is whitelisted below.
 .env
+.env.*
+!.env.example
 
-# Python virtual environment
+# ── Python virtual environments ──────────────────────────────────────────────
+# Match all common venv name patterns, plus backup copies.
 venv/
-env/
 .venv/
+env/
+.env-venv/
+venv.bak/
+.venv.bak/
 
-# Python cache
+# ── Python build & cache artifacts ───────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
+*.pyd
+*.egg-info/
+*.egg
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
 
-# Upload storage
+# ── Upload runtime data (NEVER commit user content) ─────────────────────────
+# Keep uploads/.gitkeep so the directory exists in the repo.
 uploads/*
 !uploads/.gitkeep
-
-# Chunked upload data
 uploads/.chunks/
-
-# Generated thumbnails
 uploads/.thumbnails/
 
-# Authentication data
+# Auth-derived file (contains the admin password hash).
 auth.json
 
-# Temporary files
+# ── Temporary / incomplete files ─────────────────────────────────────────────
 *.tmp
-*.log
+*.bak
+*.orig
+*.pid
+*.sock
 
-# IDE files
+# ── Browser / Playwright test artifacts ──────────────────────────────────────
+# May contain screenshots of the authenticated dashboard — never commit.
+tests/__pycache__/
+test-results/
+playwright-report/
+playwright/.cache/
+.browser-cache/
+
+# ── Logs (may contain user data / paths) ─────────────────────────────────────
+*.log
+logs/
+
+# ── IDE / editor files ───────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
+*.swn
+*~
+.project
+.classpath
+.settings/
 
-# OS files
+# ── OS noise ─────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
 
-# Test artifacts
-.pytest_cache/
-tests/__pycache__/
+# ── Misc ─────────────────────────────────────────────────────────────────────
+node_modules/
+.cache/
+.AppleDouble/
+.LSOverride
