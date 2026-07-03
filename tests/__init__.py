@@ -1,0 +1,1 @@
+# VpsEasyUploader — Tests package
