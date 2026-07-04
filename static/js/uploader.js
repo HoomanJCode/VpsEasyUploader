@@ -15,6 +15,10 @@ const Uploader = (() => {
 
     // Active uploads map: uploadId -> { file, meta, progress, status, rowEl, paused }
     const activeUploads = new Map();
+    // Counter for queued row IDs
+    let _queueId = 0;
+    // Track cancelled queued files so the loop skips them
+    const cancelledQueues = new Set();
 
     /* ------------------------------------------------------------------ */
     /*  Fingerprint helpers                                               */
@@ -219,6 +223,59 @@ const Uploader = (() => {
         if (ac) ac.innerHTML = '';
     }
 
+    /**
+     * Set the row to "Queued" — grey bar, cancel button only.
+     */
+    function setRowQueued(uploadId) {
+        const tr = document.getElementById(`upload-${uploadId}`);
+        if (!tr) return;
+        const bar = tr.querySelector('.progress-bar');
+        if (bar) {
+            bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+            bar.classList.add('bg-light');
+            bar.style.width = '0%';
+            bar.textContent = '';
+        }
+        const sc = tr.querySelector('.status-cell');
+        if (sc) sc.textContent = '⏳ Queued…';
+        const action = tr.querySelector('.action-cell');
+        if (action) {
+            action.innerHTML = `<button class="btn btn-sm btn-outline-danger cancel-btn"
+                data-upload-id="${uploadId}" title="Remove from queue">
+                <i class="bi bi-x-lg"></i></button>`;
+        }
+    }
+
+    /**
+     * Transition a queued row to "Initializing…" — restores striped bar
+     * and pause+cancel buttons so the upload can begin.
+     */
+    function setRowTransitioning(uploadId) {
+        const tr = document.getElementById(`upload-${uploadId}`);
+        if (!tr) return;
+        const bar = tr.querySelector('.progress-bar');
+        if (bar) {
+            bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+            bar.style.width = '0%';
+            bar.textContent = '';
+        }
+        const sc = tr.querySelector('.status-cell');
+        if (sc) sc.textContent = 'Initializing…';
+        const tc = tr.querySelector('.time-cell');
+        if (tc) tc.textContent = 'now';
+        const action = tr.querySelector('.action-cell');
+        if (action) {
+            action.innerHTML = `<button class="btn btn-sm btn-outline-secondary pause-btn"
+                data-upload-id="${uploadId}" title="Pause">
+                <i class="bi bi-pause-fill"></i></button>
+                <button class="btn btn-sm btn-outline-danger cancel-btn"
+                data-upload-id="${uploadId}" title="Cancel">
+                <i class="bi bi-x-lg"></i></button>`;
+            tr.querySelector('.pause-btn').addEventListener('click', () => pauseUpload(uploadId));
+            tr.querySelector('.cancel-btn').addEventListener('click', () => cancelUpload(uploadId));
+        }
+    }
+
     function removeUploadRow(uploadId) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (tr) tr.remove();
@@ -284,10 +341,6 @@ const Uploader = (() => {
     /*  Core upload flow                                                  */
     /* ------------------------------------------------------------------ */
 
-    async function addFile(file) {
-        await startUpload(null, file);
-    }
-
     /**
      * Start or resume an upload.
      *
@@ -295,7 +348,7 @@ const Uploader = (() => {
      * @param {File}        file      file object from browser
      * @param {boolean}     [isResume=false]  set by resume-flow callers
      */
-    async function startUpload(uploadId, file, isResume = false) {
+    async function startUpload(uploadId, file, isResume = false, existingRow = null) {
         const totalSize = file.size;
 
         // --- fingerprint ----------------------------------------------------
@@ -310,7 +363,13 @@ const Uploader = (() => {
 
         // Create or reuse a row for this upload
         let row;
-        if (isResume && uploadId) {
+        if (existingRow) {
+            // Reuse the pre-created queued row (already transitioned via setRowTransitioning)
+            row = existingRow;
+            // Guard against the narrow race where user cancelled between
+            // setRowTransitioning and the synchronous body of startUpload
+            if (cancelledQueues.has(row.id.replace('upload-', ''))) return;
+        } else if (isResume && uploadId) {
             // Reuse the existing server-rendered row — don't create a duplicate
             row = document.getElementById(`upload-${uploadId}`);
             if (row) {
@@ -354,7 +413,8 @@ const Uploader = (() => {
             cancelled: false,
             startedAt: Date.now(),
         };
-        activeUploads.set(uploadId || 'temp', state);
+        const rowId = row.id.replace('upload-', '');
+        activeUploads.set(rowId, state);
 
         try {
             // Step 1 — check disk space
@@ -388,9 +448,9 @@ const Uploader = (() => {
 
             // Resolve final upload_id (server may return existing one on conflict)
             const finalId = initData.upload_id;
-            if (finalId !== (uploadId || 'temp')) {
+            if (finalId !== rowId) {
                 // Update state key and row id
-                activeUploads.delete(uploadId || 'temp');
+                activeUploads.delete(rowId);
                 activeUploads.set(finalId, state);
                 row.id = `upload-${finalId}`;
 
@@ -441,15 +501,11 @@ const Uploader = (() => {
         } catch (err) {
             console.error(`Upload error [${uploadId}]:`, err);
             showToast('Upload Failed', err.message, 'danger');
-            // If init failed before the row was renamed from 'temp' to a real
-            // UUID, clean up the stale state and DOM row so the next new upload
-            // doesn't collide on the 'temp' ID.
-            if (!uploadId && activeUploads.has('temp')) {
-                activeUploads.delete('temp');
-                removeUploadRow('temp');
-            } else {
-                setRowError(row.id.replace('upload-', ''), err.message || 'Upload failed');
+            const currentRowId = row.id.replace('upload-', '');
+            if (activeUploads.has(currentRowId)) {
+                activeUploads.delete(currentRowId);
             }
+            setRowError(currentRowId, err.message || 'Upload failed');
         }
     }
 
@@ -625,6 +681,9 @@ const Uploader = (() => {
             st.cancelled = true;
             st.paused = false; // unpause so loop wakes up and sees cancelled
             activeUploads.delete(uploadId);
+        } else if (typeof uploadId === 'string' && uploadId.startsWith('queued-')) {
+            // Queued file hasn't started yet — mark it so the queue loop skips it
+            cancelledQueues.add(uploadId);
         }
         removeUploadRow(uploadId);
         try {
@@ -667,20 +726,50 @@ const Uploader = (() => {
 
     async function handleFiles(fileList) {
         if (!fileList || fileList.length === 0) return;
+        const files = Array.from(fileList);
+
+        // Create rows IMMEDIATELY (synchronously) so the user sees files
+        // waiting in the queue even while a previous batch is uploading.
+        const entries = files.map(f => {
+            const qid = 'queued-' + (++_queueId);
+            const row = addUploadRow(qid, f.name, f.size);
+            return { file: f, row, qid };
+        });
+        // All start as "Queued…" — the loop below transitions them to active
+        for (const entry of entries) {
+            setRowQueued(entry.qid);
+        }
+
         // Chain onto the queue so separate drop/browse events are sequential
         uploadQueue = uploadQueue.then(async () => {
             let total = 0;
-            const files = [];
-            for (const f of fileList) { total += f.size; files.push(f); }
+            for (const f of files) total += f.size;
+
+            // Check disk space for the batch
             try {
                 const r = await fetch(`/check_space?size=${total}`, { headers: csrfHeaders() });
                 const d = await r.json();
                 if (!d.available) {
                     showToast('Error', `Need ${formatBytes(total)}, have ${formatBytes(d.free)} free.`, 'danger');
+                    // Clean up the pre-created rows
+                    for (const entry of entries) {
+                        removeUploadRow(entry.qid);
+                        cancelledQueues.delete(entry.qid);
+                    }
                     return;
                 }
             } catch (_) { /* server will reject individual uploads */ }
-            for (const f of files) await addFile(f);
+
+            // Process sequentially — each file transitions from queued to
+            // active when it's its turn.
+            for (const entry of entries) {
+                if (cancelledQueues.has(entry.qid)) {
+                    cancelledQueues.delete(entry.qid);
+                    continue;
+                }
+                setRowTransitioning(entry.qid);
+                await startUpload(entry.qid, entry.file, false, entry.row);
+            }
         });
     }
 
