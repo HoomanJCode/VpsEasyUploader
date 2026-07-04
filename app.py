@@ -76,6 +76,7 @@ from utils.chunker import (
     complete_upload,
     list_incomplete_uploads,
     cleanup_expired_uploads,
+    cleanup_upload as chunker_cleanup,
 )
 
 # Ensure required directories exist
@@ -365,6 +366,16 @@ def upload_complete(upload_id):
         return jsonify({"success": True, "message": message})
 
     return jsonify({"success": False, "error": message}), 400
+
+
+@app.route("/upload/cancel/<upload_id>", methods=["DELETE"])
+@login_required
+@csrf_required
+def upload_cancel(upload_id):
+    """Cancel an incomplete upload and remove all its chunks/metadata."""
+    chunker_cleanup(upload_id)
+    logger.info("Upload cancelled: %s", upload_id)
+    return jsonify({"success": True})
 
 
 @app.route("/uploads/incomplete")

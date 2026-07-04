@@ -22,15 +22,24 @@ const Uploader = (() => {
 
     /**
      * Compute a lightweight file fingerprint for resume verification.
-     * Uses SHA-256 of the first 1 MB so it's fast even on 6 GB+ files.
+     * Uses SHA-256 of the first 1 MB when available (secure context),
+     * falls back to filename+size+lastModified on plain HTTP.
      */
     async function computeFileFingerprint(file) {
-        const headSize = Math.min(1024 * 1024, file.size);
-        const blob = file.slice(0, headSize);
-        const buf = await blob.arrayBuffer();
-        const hash = await crypto.subtle.digest('SHA-256', buf);
-        const bytes = Array.from(new Uint8Array(hash));
-        return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        // Try SubtleCrypto first (HTTPS / localhost only)
+        if (typeof crypto !== 'undefined' && crypto.subtle && typeof crypto.subtle.digest === 'function') {
+            const headSize = Math.min(1024 * 1024, file.size);
+            const blob = file.slice(0, headSize);
+            const buf = await blob.arrayBuffer();
+            try {
+                const hash = await crypto.subtle.digest('SHA-256', buf);
+                const bytes = Array.from(new Uint8Array(hash));
+                return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+            } catch (_) { /* fall through to fallback */ }
+        }
+        // Plain-HTTP fallback: name, size, lastModified (null-byte separated
+        // so the separator can't appear in a filename on any platform)
+        return 'fallback:' + file.name + '\x00' + file.size + '\x00' + (file.lastModified || 0);
     }
 
     /* ------------------------------------------------------------------ */
@@ -102,11 +111,19 @@ const Uploader = (() => {
                         data-upload-id="${uploadId}" title="Pause">
                     <i class="bi bi-pause-fill"></i>
                 </button>
+                <button class="btn btn-sm btn-outline-danger cancel-btn ms-1"
+                        data-upload-id="${uploadId}" title="Cancel">
+                    <i class="bi bi-x-lg"></i>
+                </button>
             </td>`;
         tbody.appendChild(tr);
         // Wire up the pause button
         tr.querySelector('.pause-btn').addEventListener('click', () => {
             pauseUpload(uploadId);
+        });
+        // Wire up the cancel button (direct binding for active uploads)
+        tr.querySelector('.cancel-btn').addEventListener('click', () => {
+            cancelUpload(uploadId);
         });
         return tr;
     }
@@ -150,8 +167,11 @@ const Uploader = (() => {
         const action = tr.querySelector('.action-cell');
         action.innerHTML = `<button class="btn btn-sm btn-outline-primary resume-btn"
             data-upload-id="${uploadId}" data-filename="${escapeHtml(filename)}" title="Resume">
-            <i class="bi bi-play-fill"></i></button>`;
-        // Re-bind so dashboard picks it up (dashboard uses event delegation on tbody)
+            <i class="bi bi-play-fill"></i></button>
+            <button class="btn btn-sm btn-outline-danger cancel-btn ms-1"
+            data-upload-id="${uploadId}" title="Cancel">
+            <i class="bi bi-x-lg"></i></button>`;
+        // Wire up cancel button on paused rows (dashboard delegation handles the rest)
     }
 
     function setRowError(uploadId, msg) {
@@ -243,6 +263,7 @@ const Uploader = (() => {
             status: 'init',
             paused: false,
             pausedByUser: false,
+            cancelled: false,
         };
         activeUploads.set(uploadId || 'temp', state);
 
@@ -339,9 +360,11 @@ const Uploader = (() => {
                 return false;
             }
 
-            // Fingerprint check (first 1 MB hash)
+            // Fingerprint check: skip if current fingerprint is fallback
+            // (the filename+size check above already provides basic verification)
             const stored = data.file_fingerprint;
-            if (stored && stored !== fingerprint) {
+            if (fingerprint && !fingerprint.startsWith('fallback:') &&
+                stored && stored !== fingerprint) {
                 showToast('Wrong File',
                     'This file\'s content doesn\'t match the incomplete upload. Please select the same file.',
                     'danger');
@@ -372,6 +395,12 @@ const Uploader = (() => {
         updateRowProgress(uploadId, done, totalChunks, `Resuming… ${done}/${totalChunks} chunks`);
 
         for (let i = 0; i < totalChunks; i++) {
+            // --- CANCEL CHECK ---
+            if (state.cancelled) {
+                removeUploadRow(uploadId);
+                activeUploads.delete(uploadId);
+                return;
+            }
             // --- PAUSE CHECK ---
             if (state.paused) {
                 // Don't remove from active — stay in the map so resume can find us
@@ -453,6 +482,27 @@ const Uploader = (() => {
         return resumeUploadFromPause(uploadId);
     }
 
+    /**
+     * Cancel an active or paused upload — stops the chunk loop,
+     * removes the row, and tells the server to clean up.
+     */
+    async function cancelUpload(uploadId) {
+        const st = activeUploads.get(uploadId);
+        if (st) {
+            st.cancelled = true;
+            st.paused = false; // unpause so loop wakes up and sees cancelled
+            activeUploads.delete(uploadId);
+        }
+        removeUploadRow(uploadId);
+        try {
+            await fetch(`/upload/cancel/${uploadId}`, {
+                method: 'DELETE',
+                headers: csrfHeaders(),
+            });
+        } catch (_) { /* best effort */ }
+        showToast('Cancelled', 'Upload has been cancelled and cleaned up.');
+    }
+
     /* ------------------------------------------------------------------ */
     /*  Drop zone setup                                                   */
     /* ------------------------------------------------------------------ */
@@ -500,6 +550,7 @@ const Uploader = (() => {
         setupDropZone,
         resumeFromUI,
         resumePaused,
+        cancelUpload,
         formatBytes,
     };
 })();

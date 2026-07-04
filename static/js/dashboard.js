@@ -388,6 +388,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                 data-filename="${escapeHtml(u.filename)}">
                             <i class="bi bi-play-fill me-1"></i>Resume
                         </button>
+                        <button class="btn btn-sm btn-outline-danger cancel-btn ms-1"
+                                data-upload-id="${u.upload_id}" title="Cancel">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
                     </td>`;
                 tbody.appendChild(tr);
             });
@@ -445,6 +449,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const filename = btn.getAttribute('data-filename');
             if (uploadId && filename && btn.classList.contains('resume-btn')) {
                 handleResume(uploadId, filename);
+                return;
+            }
+            if (uploadId && btn.classList.contains('cancel-btn')) {
+                Uploader.cancelUpload(uploadId);
+                return;
             }
         });
     }
