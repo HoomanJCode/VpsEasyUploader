@@ -181,6 +181,23 @@ def index():
     """Main dashboard page."""
     disk = get_disk_usage()
     incomplete = list_incomplete_uploads()
+    # Format timestamps for template display
+    from datetime import datetime
+    for u in incomplete:
+        ts = u.get("last_activity", 0)
+        dt = datetime.fromtimestamp(ts)
+        now = datetime.now()
+        diff = now - dt
+        if diff.total_seconds() < 60:
+            u["last_activity_fmt"] = "Just now"
+        elif diff.total_seconds() < 3600:
+            u["last_activity_fmt"] = f"{int(diff.total_seconds() // 60)} min ago"
+        elif diff.total_seconds() < 86400:
+            u["last_activity_fmt"] = f"{int(diff.total_seconds() // 3600)} hr ago"
+        elif diff.days < 7:
+            u["last_activity_fmt"] = f"{diff.days} days ago"
+        else:
+            u["last_activity_fmt"] = dt.strftime("%b %d, %Y")
     return render_template(
         "index.html",
         disk=disk,

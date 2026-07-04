@@ -359,16 +359,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const tbody = document.getElementById('incomplete-table-body');
 
             if (uploads.length === 0) {
-                // Don't hide if uploader has added rows
-                if (tbody.children.length === 0) section.classList.add('d-none');
+                // Clear any Jinja2-rendered rows that may be stale
+                tbody.innerHTML = '';
+                section.classList.add('d-none');
                 return;
             }
 
+            // On page load no uploader-managed rows exist yet, so clear
+            // Jinja2-rendered rows and re-render fresh.  This prevents
+            // duplicates when old rows linger or IDs don't match.
+            tbody.innerHTML = '';
             section.classList.remove('d-none');
 
-            // Only add rows for uploads NOT already managed by the uploader
             uploads.forEach(u => {
-                if (document.getElementById(`upload-${u.upload_id}`)) return; // already managed
                 const tr = document.createElement('tr');
                 tr.id = `upload-${u.upload_id}`;
                 tr.setAttribute('data-upload-id', u.upload_id);
