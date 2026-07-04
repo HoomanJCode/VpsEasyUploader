@@ -163,6 +163,7 @@ const Uploader = (() => {
         if (state) {
             tr.querySelector('.time-cell').textContent = formatRelativeTime(state.startedAt);
         }
+    }
 
     /**
      * Set the row status to "Paused" and replace the pause button with a
