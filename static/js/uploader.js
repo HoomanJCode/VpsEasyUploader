@@ -73,6 +73,17 @@ const Uploader = (() => {
         bootstrap.Toast.getOrCreateInstance(t).show();
     }
 
+    /**
+     * Format elapsed seconds to a human-readable relative time.
+     */
+    function formatRelativeTime(startedAt) {
+        const secs = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        if (secs < 5) return 'Just now';
+        if (secs < 60) return `${secs}s ago`;
+        if (secs < 3600) return `${Math.floor(secs / 60)} min ago`;
+        return `${Math.floor(secs / 3600)} hr ago`;
+    }
+
     /* ------------------------------------------------------------------ */
     /*  Unified uploads table helpers                                     */
     /* ------------------------------------------------------------------ */
@@ -148,8 +159,10 @@ const Uploader = (() => {
         }
         const status = tr.querySelector('.status-cell');
         if (status) status.textContent = statusText || `${done}/${total} chunks (${pct}%)`;
-        tr.querySelector('.time-cell').textContent = 'now';
-    }
+        const state = activeUploads.get(uploadId);
+        if (state) {
+            tr.querySelector('.time-cell').textContent = formatRelativeTime(state.startedAt);
+        }
 
     /**
      * Set the row status to "Paused" and replace the pause button with a
@@ -264,6 +277,7 @@ const Uploader = (() => {
             paused: false,
             pausedByUser: false,
             cancelled: false,
+            startedAt: Date.now(),
         };
         activeUploads.set(uploadId || 'temp', state);
 
