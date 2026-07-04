@@ -98,7 +98,8 @@ def init_upload(filename: str, total_size: int, upload_id: str | None = None, fi
             }
 
     # Generate a new upload_id if not provided
-    if upload_id is None:
+    new_upload = upload_id is None
+    if new_upload:
         upload_id = str(uuid.uuid4())
 
     # Calculate chunk size from config
@@ -108,7 +109,10 @@ def init_upload(filename: str, total_size: int, upload_id: str | None = None, fi
     # Calculate total chunks
     total_chunks = (total_size + chunk_size - 1) // chunk_size  # ceiling division
 
-    # Check available disk space
+    # If resuming, preserve existing metadata (received_chunks, etc.)
+    existing_meta = None if new_upload else load_meta(upload_id)
+
+    # Check available disk space (only need space for remaining chunks)
     if not check_available_space(total_size):
         raise ValueError("Not enough disk space available for this upload")
 
@@ -117,24 +121,32 @@ def init_upload(filename: str, total_size: int, upload_id: str | None = None, fi
     upload_dir.mkdir(parents=True, exist_ok=True)
 
     # Reserve space by creating an empty file of the declared size
+    # Skip if already reserved (resume case)
     reserved_path = _get_reserved_path(upload_id)
-    try:
-        with open(reserved_path, "wb") as f:
-            # Use truncate to allocate the file size without writing data
-            os.truncate(f.fileno(), total_size)
-    except OSError as e:
-        raise ValueError(f"Failed to reserve disk space: {e}")
+    if new_upload or not reserved_path.exists():
+        try:
+            with open(reserved_path, "wb") as f:
+                # Use truncate to allocate the file size without writing data
+                os.truncate(f.fileno(), total_size)
+        except OSError as e:
+            raise ValueError(f"Failed to reserve disk space: {e}")
 
-    # Save metadata
+    # Save metadata, preserving received_chunks from existing uploads
+    received_chunks = existing_meta.get("received_chunks", []) if existing_meta else []
+    # On resume, verify existing chunk files are still on disk
+    if existing_meta:
+        received_chunks = [i for i in received_chunks
+                          if _get_chunk_path(upload_id, i).exists()]
+    created_at = existing_meta.get("created_at", time.time()) if existing_meta else time.time()
     meta = {
         "upload_id": upload_id,
         "filename": filename,
         "total_size": total_size,
         "chunk_size": chunk_size,
         "total_chunks": total_chunks,
-        "received_chunks": [],
-        "file_fingerprint": file_fingerprint,
-        "created_at": time.time(),
+        "received_chunks": received_chunks,
+        "file_fingerprint": file_fingerprint if new_upload else (file_fingerprint or existing_meta.get("file_fingerprint")),
+        "created_at": created_at,
         "last_activity": time.time(),
     }
     save_meta(upload_id, meta)
