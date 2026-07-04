@@ -266,8 +266,40 @@ const Uploader = (() => {
             // error toast is shown inside verifyFingerprint
         }
 
-        // Create unified row
-        const row = addUploadRow(uploadId || 'temp', file.name, totalSize);
+        // Create or reuse a row for this upload
+        let row;
+        if (isResume && uploadId) {
+            // Reuse the existing server-rendered row — don't create a duplicate
+            row = document.getElementById(`upload-${uploadId}`);
+            if (row) {
+                // Reset the row to "active upload" state
+                const bar = row.querySelector('.progress-bar');
+                if (bar) {
+                    bar.style.width = '0%';
+                    bar.textContent = '';
+                    bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+                }
+                const sc = row.querySelector('.status-cell');
+                if (sc) sc.textContent = 'Initializing…';
+                const tc = row.querySelector('.time-cell');
+                if (tc) tc.textContent = 'now';
+                const ac = row.querySelector('.action-cell');
+                if (ac) {
+                    ac.innerHTML = `<button class="btn btn-sm btn-outline-secondary pause-btn"
+                        data-upload-id="${uploadId}" title="Pause">
+                        <i class="bi bi-pause-fill"></i></button>
+                        <button class="btn btn-sm btn-outline-danger cancel-btn"
+                        data-upload-id="${uploadId}" title="Cancel">
+                        <i class="bi bi-x-lg"></i></button>`;
+                    row.querySelector('.pause-btn').addEventListener('click', () => pauseUpload(uploadId));
+                    row.querySelector('.cancel-btn').addEventListener('click', () => cancelUpload(uploadId));
+                }
+            } else {
+                row = addUploadRow(uploadId, file.name, totalSize);
+            }
+        } else {
+            row = addUploadRow(uploadId || 'temp', file.name, totalSize);
+        }
 
         // State
         const state = {

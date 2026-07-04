@@ -450,8 +450,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast('Resuming', `Resuming upload for "${file.name}"...`);
                 const ok = await Uploader.resumeFromUI(uploadId, file);
                 if (ok) {
-                    const row = document.querySelector(`tr[data-upload-id="${uploadId}"]`);
-                    if (row) row.remove();
                     setTimeout(() => refreshFiles(), 2000);
                 }
             }
