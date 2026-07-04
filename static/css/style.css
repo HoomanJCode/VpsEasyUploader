@@ -29,17 +29,6 @@
 /* ===== Unified Uploads Section ===== */
 #incomplete-section .progress {
     min-width: 80px;
-    height: 14px;
-    border-radius: 0.5rem;
-    background-color: #e9ecef;
-}
-
-#incomplete-section .progress .progress-bar {
-    font-size: 0.7rem;
-    font-weight: 600;
-    line-height: 14px;
-    color: #fff;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 #incomplete-section tbody tr {

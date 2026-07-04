@@ -110,7 +110,7 @@ const Uploader = (() => {
             <td class="text-truncate" style="max-width:250px;">${escapeHtml(filename)}</td>
             <td class="text-nowrap size-cell">${formatBytes(totalSize)}</td>
             <td style="min-width:160px;">
-                <div class="progress">
+                <div class="progress" style="height:6px;">
                     <div class="progress-bar progress-bar-striped progress-bar-animated"
                          style="width:0%;"></div>
                 </div>
@@ -155,7 +155,7 @@ const Uploader = (() => {
         const bar = tr.querySelector('.progress-bar');
         if (bar) {
             bar.style.width = pct + '%';
-            bar.textContent = pct >= 8 ? pct + '%' : '';
+            bar.textContent = pct > 10 ? pct + '%' : '';
         }
         const status = tr.querySelector('.status-cell');
         if (status) status.textContent = statusText || `${done}/${total} chunks (${pct}%)`;
