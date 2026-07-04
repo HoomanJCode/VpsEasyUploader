@@ -1,5 +1,9 @@
 # VpsEasyUploader
 
+[![License: MIT](https://img.shields.io/github/license/HoomanJCode/VpsEasyUploader)](https://github.com/HoomanJCode/VpsEasyUploader/blob/master/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/HoomanJCode/VpsEasyUploader)](https://github.com/HoomanJCode/VpsEasyUploader)
+[![GitHub issues](https://img.shields.io/github/issues/HoomanJCode/VpsEasyUploader)](https://github.com/HoomanJCode/VpsEasyUploader/issues)
+
 **A personal file upload server for a single admin — simple, secure, and production-ready.**
 
 VpsEasyUploader gives you a private web dashboard where you can upload, preview, rename, and delete files. It runs on any VPS and supports **resumable uploads** for huge files (tested with 6 GB+), so dropped connections or browser refreshes won't lose your progress.
@@ -25,7 +29,7 @@ VpsEasyUploader gives you a private web dashboard where you can upload, preview,
 ## Quick Start
 
 ```bash
-git clone <your-repo-url> VpsEasyUploader
+git clone https://github.com/HoomanJCode/VpsEasyUploader VpsEasyUploader
 cd VpsEasyUploader
 chmod +x setup.sh run.sh
 ./setup.sh
@@ -52,7 +56,7 @@ If you prefer to configure manually:
 
 ```bash
 # 1. Clone and enter the project
-git clone <your-repo-url> VpsEasyUploader
+git clone https://github.com/HoomanJCode/VpsEasyUploader VpsEasyUploader
 cd VpsEasyUploader
 
 # 2. Create and activate a virtual environment
@@ -230,10 +234,10 @@ MIT — feel free to use, modify, and share.
 
 ## Contributing
 
-Pull requests are welcome! For major changes, please open an issue first to discuss what you'd like to change.
+PRs and issues welcome on [GitHub](https://github.com/HoomanJCode/VpsEasyUploader). For major changes, please [open an issue](https://github.com/HoomanJCode/VpsEasyUploader/issues/new) first to discuss what you'd like to change.
 
-1. Fork the repository
+1. Fork the [repository](https://github.com/HoomanJCode/VpsEasyUploader)
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit your changes (`git commit -m 'Add amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+5. Open a [Pull Request](https://github.com/HoomanJCode/VpsEasyUploader/pulls)
