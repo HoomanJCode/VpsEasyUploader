@@ -8,6 +8,7 @@
     transition: all 0.2s ease;
     cursor: pointer;
     background-color: #f8f9fa;
+    padding: 2rem 1rem;
 }
 
 #drop-zone.drag-over {
@@ -21,34 +22,28 @@
     transition: transform 0.2s ease;
 }
 
-/* ===== Upload Progress Bars ===== */
-.upload-item {
-    background: #fff;
-    border: 1px solid #dee2e6;
-    border-radius: 0.5rem;
-    padding: 0.75rem 1rem;
-    margin-bottom: 0.5rem;
-    transition: opacity 0.3s ease;
+#drop-zone i.display-4 {
+    font-size: 2.5rem;
 }
 
-.upload-item.completed {
-    opacity: 0.7;
-    background: #d1e7dd;
-    border-color: #a3cfbb;
+/* ===== Unified Uploads Section ===== */
+#incomplete-section .progress {
+    min-width: 80px;
 }
 
-.upload-item.error {
-    background: #f8d7da;
-    border-color: #f1aeb5;
+#incomplete-section tbody tr {
+    transition: background-color 0.2s ease;
 }
 
-.upload-item .progress {
-    height: 8px;
-    border-radius: 4px;
+#incomplete-section .pause-btn,
+#incomplete-section .resume-btn {
+    padding: 0.2rem 0.45rem;
+    font-size: 0.875rem;
 }
 
-.upload-item .progress-bar {
-    transition: width 0.3s ease;
+/* ===== Layout constraints ===== */
+main.container {
+    max-width: 1100px;
 }
 
 /* ===== Table Styles ===== */
@@ -109,11 +104,6 @@
     border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-/* ===== Incomplete upload section ===== */
-#incomplete-section .progress {
-    min-width: 100px;
-}
-
 /* ===== Modal tweaks ===== */
 .modal-content {
     border-radius: 0.75rem;
@@ -142,11 +132,15 @@
     }
 
     #drop-zone {
-        padding: 1.5rem 1rem;
+        padding: 1.25rem 0.75rem;
     }
 
     #drop-zone i.display-4 {
         font-size: 2rem;
+    }
+
+    #incomplete-section .progress {
+        min-width: 60px;
     }
 }
 
