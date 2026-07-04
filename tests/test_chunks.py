@@ -7,11 +7,14 @@ Covers:
 - Upload completion
 - Incomplete upload listing
 - Space checking
+- Resume with preserved chunks
+- Cancel and cleanup
 """
 
 import os
 import re
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -247,3 +250,289 @@ class TestSpaceCheck:
         """Should return 400 for invalid size."""
         resp = app.get("/check_space?size=notanumber")
         assert resp.status_code == 400
+
+
+class TestResumeAndTracking:
+    """Tests for resume, chunk tracking, cancel, and cleanup."""
+
+    # Total size: 3 MB + 500 bytes → 4 chunks (1 MB each, last is 500 bytes)
+    TOTAL_SIZE = 3 * 1024 * 1024 + 500
+    TOTAL_CHUNKS = 4
+
+    @pytest.fixture
+    def multi_chunk_upload(self, app):
+        """Initiate a multi-chunk upload (4 chunks)."""
+        resp = csrf_json(app, "/upload/init", {
+            "filename": "multi.bin",
+            "total_size": self.TOTAL_SIZE,
+        })
+        data = resp.get_json()
+        assert resp.status_code == 200
+        return data["upload_id"]
+
+    # ------------------------------------------------------------------
+    # Resume preserves received_chunks
+    # ------------------------------------------------------------------
+
+    def test_resume_preserves_received_chunks(self, app, multi_chunk_upload):
+        """Re-initializing with upload_id keeps previously uploaded chunks."""
+        from io import BytesIO
+        upload_id = multi_chunk_upload
+
+        # Upload chunk 0 and chunk 2 (out of order)
+        for idx in [0, 2]:
+            chunk = b"A" * 1048576  # 1 MB
+            resp = csrf_multipart(app, "/upload/chunk", data={
+                "upload_id": upload_id,
+                "chunk_index": str(idx),
+                "chunk_data": (BytesIO(chunk), f"chunk_{idx}"),
+            })
+            assert resp.status_code == 200
+
+        # Re-init with the same upload_id
+        resp = csrf_json(app, "/upload/init", {
+            "filename": "multi.bin",
+            "total_size": self.TOTAL_SIZE,
+            "upload_id": upload_id,
+        })
+        assert resp.status_code == 200
+
+        # Verify chunks 0 and 2 are still present
+        resp = app.get(f"/upload/status/{upload_id}")
+        status = resp.get_json()
+        assert status["total_chunks"] == self.TOTAL_CHUNKS
+        assert 0 in status["received_chunks"]
+        assert 2 in status["received_chunks"]
+        assert len(status["received_chunks"]) == 2
+
+    # ------------------------------------------------------------------
+    # Multiple chunks status tracking
+    # ------------------------------------------------------------------
+
+    def test_upload_all_chunks_tracks_complete_set(self, app, multi_chunk_upload):
+        """Uploading all 4 chunks should show all in status."""
+        from io import BytesIO
+        upload_id = multi_chunk_upload
+        chunk_size = 1048576  # 1 MB
+
+        for i in range(self.TOTAL_CHUNKS):
+            if i == self.TOTAL_CHUNKS - 1:
+                chunk = b"B" * 500  # last chunk is 500 bytes
+            else:
+                chunk = b"B" * chunk_size
+            resp = csrf_multipart(app, "/upload/chunk", data={
+                "upload_id": upload_id,
+                "chunk_index": str(i),
+                "chunk_data": (BytesIO(chunk), f"chunk_{i}"),
+            })
+            assert resp.status_code == 200, f"Chunk {i} failed"
+
+        # Verify all 4 chunks recorded
+        resp = app.get(f"/upload/status/{upload_id}")
+        status = resp.get_json()
+        assert status["received_chunks"] == [0, 1, 2, 3]
+        assert len(status["received_chunks"]) == self.TOTAL_CHUNKS
+
+    # ------------------------------------------------------------------
+    # Chunk re-upload is idempotent
+    # ------------------------------------------------------------------
+
+    def test_chunk_reupload_is_idempotent(self, app, multi_chunk_upload):
+        """Uploading the same chunk twice should succeed both times."""
+        from io import BytesIO
+        upload_id = multi_chunk_upload
+        chunk = b"C" * 1048576
+
+        # First upload
+        resp = csrf_multipart(app, "/upload/chunk", data={
+            "upload_id": upload_id,
+            "chunk_index": "0",
+            "chunk_data": (BytesIO(chunk), "chunk_0"),
+        })
+        assert resp.status_code == 200
+
+        # Second upload — same chunk
+        resp = csrf_multipart(app, "/upload/chunk", data={
+            "upload_id": upload_id,
+            "chunk_index": "0",
+            "chunk_data": (BytesIO(chunk), "chunk_0"),
+        })
+        assert resp.status_code == 200
+
+        # Status should show chunk 0 only once
+        resp = app.get(f"/upload/status/{upload_id}")
+        status = resp.get_json()
+        assert status["received_chunks"] == [0]
+        assert len(status["received_chunks"]) == 1
+
+    # ------------------------------------------------------------------
+    # Cancel removes upload from listing
+    # ------------------------------------------------------------------
+
+    def test_cancel_removes_upload(self, app, multi_chunk_upload):
+        """Cancelling an upload removes it from the incomplete list."""
+        from io import BytesIO
+        upload_id = multi_chunk_upload
+
+        # Upload one chunk so there's something to clean up
+        chunk = b"D" * 1048576
+        csrf_multipart(app, "/upload/chunk", data={
+            "upload_id": upload_id,
+            "chunk_index": "0",
+            "chunk_data": (BytesIO(chunk), "chunk_0"),
+        })
+
+        # It should be in the incomplete list
+        resp = app.get("/uploads/incomplete")
+        assert any(u["upload_id"] == upload_id for u in resp.get_json()["uploads"])
+
+        # Cancel it
+        resp = csrf_json(app, f"/upload/cancel/{upload_id}", {}, method="delete")
+        assert resp.status_code == 200
+        assert resp.get_json()["success"] is True
+
+        # No longer in the list
+        resp = app.get("/uploads/incomplete")
+        assert not any(u["upload_id"] == upload_id for u in resp.get_json()["uploads"])
+
+        # Status should 404
+        resp = app.get(f"/upload/status/{upload_id}")
+        assert resp.status_code == 404
+
+    # ------------------------------------------------------------------
+    # Progress percentage math
+    # ------------------------------------------------------------------
+
+    def test_progress_percent_is_accurate(self, app, multi_chunk_upload):
+        """progress_percent should correctly reflect uploaded/total."""
+        from io import BytesIO
+        upload_id = multi_chunk_upload
+
+        # Upload 2 of 4 chunks
+        for i in range(2):
+            chunk = b"E" * 1048576
+            csrf_multipart(app, "/upload/chunk", data={
+                "upload_id": upload_id,
+                "chunk_index": str(i),
+                "chunk_data": (BytesIO(chunk), f"chunk_{i}"),
+            })
+
+        # Check listing progress
+        resp = app.get("/uploads/incomplete")
+        uploads = resp.get_json()["uploads"]
+        u = next(u for u in uploads if u["upload_id"] == upload_id)
+        assert u["received_chunks_count"] == 2
+        assert u["total_chunks"] == self.TOTAL_CHUNKS
+        assert u["progress_percent"] == 50.0  # 2/4 = 50%
+
+        # Upload one more → 75%
+        chunk = b"E" * 1048576
+        csrf_multipart(app, "/upload/chunk", data={
+            "upload_id": upload_id,
+            "chunk_index": "2",
+            "chunk_data": (BytesIO(chunk), "chunk_2"),
+        })
+        resp = app.get("/uploads/incomplete")
+        uploads = resp.get_json()["uploads"]
+        u = next(u for u in uploads if u["upload_id"] == upload_id)
+        assert u["received_chunks_count"] == 3
+        assert u["progress_percent"] == 75.0  # 3/4 = 75%
+
+    # ------------------------------------------------------------------
+    # File fingerprint on resume
+    # ------------------------------------------------------------------
+
+    def test_fingerprint_preserved_on_resume_when_not_reprovided(self, app, multi_chunk_upload):
+        """Resume without new fingerprint keeps the old one."""
+        upload_id = multi_chunk_upload
+
+        # Set initial fingerprint
+        csrf_json(app, "/upload/init", {
+            "filename": "multi.bin",
+            "total_size": self.TOTAL_SIZE,
+            "upload_id": upload_id,
+            "file_fingerprint": "original-fingerprint",
+        })
+
+        # Resume WITHOUT providing a new fingerprint — should preserve the original
+        csrf_json(app, "/upload/init", {
+            "filename": "multi.bin",
+            "total_size": self.TOTAL_SIZE,
+            "upload_id": upload_id,
+        })
+
+        # Verify original fingerprint was preserved
+        resp = app.get(f"/upload/status/{upload_id}")
+        assert resp.get_json()["file_fingerprint"] == "original-fingerprint"
+
+    def test_fingerprint_overwritten_when_reprovided_on_resume(self, app, multi_chunk_upload):
+        """Resume with a new fingerprint overwrites the old one."""
+        upload_id = multi_chunk_upload
+
+        # Set initial fingerprint
+        csrf_json(app, "/upload/init", {
+            "filename": "multi.bin",
+            "total_size": self.TOTAL_SIZE,
+            "upload_id": upload_id,
+            "file_fingerprint": "old-fingerprint",
+        })
+
+        # Resume with new fingerprint
+        csrf_json(app, "/upload/init", {
+            "filename": "multi.bin",
+            "total_size": self.TOTAL_SIZE,
+            "upload_id": upload_id,
+            "file_fingerprint": "new-fingerprint",
+        })
+
+        # Verify new fingerprint took effect
+        resp = app.get(f"/upload/status/{upload_id}")
+        assert resp.get_json()["file_fingerprint"] == "new-fingerprint"
+
+    def test_fingerprint_absent_returns_none(self, app, multi_chunk_upload):
+        """Upload without a fingerprint returns None for that field."""
+        upload_id = multi_chunk_upload
+
+        resp = app.get(f"/upload/status/{upload_id}")
+        assert resp.get_json()["file_fingerprint"] is None
+
+    # ------------------------------------------------------------------
+    # Cleanup expired uploads
+    # ------------------------------------------------------------------
+
+    def test_cleanup_expired_removes_old_uploads(self, app, multi_chunk_upload):
+        """Expired uploads are removed by cleanup_expired_uploads."""
+        import utils.chunker as chunker_mod
+
+        upload_id = multi_chunk_upload
+
+        # Artificially age the upload by setting last_activity far in the past
+        meta = chunker_mod.load_meta(upload_id)
+        assert meta is not None
+        meta["last_activity"] = time.time() - (8 * 24 * 60 * 60)  # 8 days ago
+        chunker_mod.save_meta(upload_id, meta)
+
+        # Run cleanup
+        cleaned = chunker_mod.cleanup_expired_uploads()
+        assert cleaned == 1
+
+        # Upload should be gone
+        resp = app.get(f"/upload/status/{upload_id}")
+        assert resp.status_code == 404
+
+        # Incomplete list should be empty
+        resp = app.get("/uploads/incomplete")
+        assert resp.get_json()["uploads"] == []
+
+    def test_cleanup_keeps_recent_uploads(self, app, multi_chunk_upload):
+        """Recent uploads are not removed by cleanup_expired_uploads."""
+        import utils.chunker as chunker_mod
+
+        multi_chunk_upload  # just created, so it's recent
+
+        cleaned = chunker_mod.cleanup_expired_uploads()
+        assert cleaned == 0  # nothing should be removed
+
+        # Upload should still exist
+        resp = app.get("/uploads/incomplete")
+        assert len(resp.get_json()["uploads"]) == 1
