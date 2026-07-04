@@ -530,20 +530,25 @@ const Uploader = (() => {
 
     async function complete(uploadId) {
         updateRowProgress(uploadId, 1, 1, 'Finalizing…');
-        const resp = await fetch(`/upload/complete/${uploadId}`, {
-            method: 'POST',
-            headers: csrfHeaders(),
-        });
-        const data = await resp.json();
-        if (!data.success) throw new Error(data.error || 'Completion failed');
+        try {
+            const resp = await fetch(`/upload/complete/${uploadId}`, {
+                method: 'POST',
+                headers: csrfHeaders(),
+            });
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.error || 'Completion failed');
 
-        removeUploadRow(uploadId);
-        activeUploads.delete(uploadId);
-        showToast('Complete', data.message || 'File uploaded successfully.', 'success');
+            removeUploadRow(uploadId);
+            activeUploads.delete(uploadId);
+            showToast('Complete', data.message || 'File uploaded successfully.', 'success');
 
-        // Refresh file list and disk info
-        if (typeof refreshFiles === 'function') setTimeout(refreshFiles, 500);
-        if (typeof refreshDiskInfo === 'function') refreshDiskInfo();
+            // Refresh file list and disk info
+            if (typeof refreshFiles === 'function') setTimeout(refreshFiles, 500);
+            if (typeof refreshDiskInfo === 'function') refreshDiskInfo();
+        } catch (err) {
+            setRowError(uploadId, err.message || 'Completion failed');
+            showToast('Upload Failed', err.message, 'danger');
+        }
     }
 
     /* ------------------------------------------------------------------ */
