@@ -379,10 +379,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td class="text-truncate" style="max-width:300px;">${escapeHtml(u.filename)}</td>
                     <td>${Uploader.formatBytes(u.total_size)}</td>
                     <td>
-                        <div class="progress" style="height:6px;">
+                        <div class="progress">
                             <div class="progress-bar" style="width:${u.progress_percent}%"></div>
                         </div>
-                        <small class="text-muted status-cell">${u.progress_percent}%</small>
+                        <small class="text-muted status-cell">${u.received_chunks_count}/${u.total_chunks} chunks (${u.progress_percent}%)</small>
                     </td>
                     <td><small class="text-muted time-cell">${formatDate(new Date(u.last_activity * 1000).toISOString())}</small></td>
                     <td class="action-cell">

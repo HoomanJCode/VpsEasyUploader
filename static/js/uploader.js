@@ -110,7 +110,7 @@ const Uploader = (() => {
             <td class="text-truncate" style="max-width:250px;">${escapeHtml(filename)}</td>
             <td class="text-nowrap size-cell">${formatBytes(totalSize)}</td>
             <td style="min-width:160px;">
-                <div class="progress" style="height:6px;">
+                <div class="progress">
                     <div class="progress-bar progress-bar-striped progress-bar-animated"
                          style="width:0%;"></div>
                 </div>
@@ -155,7 +155,7 @@ const Uploader = (() => {
         const bar = tr.querySelector('.progress-bar');
         if (bar) {
             bar.style.width = pct + '%';
-            bar.textContent = pct > 10 ? pct + '%' : '';
+            bar.textContent = pct >= 8 ? pct + '%' : '';
         }
         const status = tr.querySelector('.status-cell');
         if (status) status.textContent = statusText || `${done}/${total} chunks (${pct}%)`;
@@ -452,7 +452,8 @@ const Uploader = (() => {
         const cs = meta.chunk_size || chunkSize;
 
         let done = received.size;
-        updateRowProgress(uploadId, done, totalChunks, `Resuming… ${done}/${totalChunks} chunks`);
+        const resumePct = totalChunks > 0 ? Math.round((done / totalChunks) * 100) : 0;
+        updateRowProgress(uploadId, done, totalChunks, `Resuming… ${done}/${totalChunks} chunks (${resumePct}%)`);
 
         for (let i = 0; i < totalChunks; i++) {
             // --- CANCEL CHECK ---
@@ -490,8 +491,9 @@ const Uploader = (() => {
             }
             done++;
             state.progress = done;
+            const loopPct = totalChunks > 0 ? Math.round((done / totalChunks) * 100) : 0;
             updateRowProgress(uploadId, done, totalChunks,
-                `Uploading… ${done}/${totalChunks} chunks`);
+                `Uploading… ${done}/${totalChunks} chunks (${loopPct}%)`);
             // If user paused during this chunk, restore paused UI and bail
             if (state.paused) {
                 setRowPaused(uploadId, meta.filename);
