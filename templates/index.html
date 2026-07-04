@@ -69,30 +69,7 @@
                             </tr>
                         </thead>
                         <tbody id="incomplete-table-body">
-                            {% for upload in incomplete_uploads %}
-                            <tr id="upload-{{ upload.upload_id }}" data-upload-id="{{ upload.upload_id }}">
-                                <td class="text-truncate" style="max-width:300px">{{ upload.filename }}</td>
-                                <td>{{ (upload.total_size / (1024*1024)) | round(1) }} MB</td>
-                                <td>
-                                    <div class="progress" style="height: 6px;">
-                                        <div class="progress-bar" style="width:{{ upload.progress_percent }}%"></div>
-                                    </div>
-                                    <small class="text-muted">{{ upload.progress_percent }}%</small>
-                                </td>
-                                <td><small class="text-muted">{{ upload.last_activity_fmt }}</small></td>
-                                <td class="action-cell">
-                                    <button class="btn btn-sm btn-outline-primary resume-btn"
-                                            data-upload-id="{{ upload.upload_id }}"
-                                            data-filename="{{ upload.filename }}">
-                                        <i class="bi bi-play-fill me-1"></i>Resume
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-danger cancel-btn ms-1"
-                                            data-upload-id="{{ upload.upload_id }}" title="Cancel">
-                                        <i class="bi bi-x-lg"></i>
-                                    </button>
-                                </td>
-                            </tr>
-                            {% endfor %}
+                            <!-- Populated by refreshIncompleteUploads() on page load -->
                         </tbody>
                     </table>
                 </div>
