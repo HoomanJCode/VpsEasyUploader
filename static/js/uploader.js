@@ -113,11 +113,8 @@ const Uploader = (() => {
         tr.innerHTML = `
             <td class="text-truncate" style="max-width:250px;">${escapeHtml(filename)}</td>
             <td class="text-nowrap size-cell">${formatBytes(totalSize)}</td>
-            <td style="min-width:160px;">
-                <div class="progress" style="height:6px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated"
-                         style="width:0%;"></div>
-                </div>
+            <td style="min-width:220px;">
+                <div class="chunks-bar"><!-- segments added after init/status --></div>
                 <small class="text-muted status-cell">Initializing…</small>
             </td>
             <td><small class="text-muted time-cell">now</small></td>
@@ -143,6 +140,108 @@ const Uploader = (() => {
         return tr;
     }
 
+    /**
+     * Above this chunk count, render a single continuous bar instead of
+     * one segment per chunk — otherwise very large files render as a wall
+     * of imperceptible 1px slices with gaps consuming all the width.
+     */
+    const MAX_CHUNK_SEGMENTS = 50;
+
+    /**
+     * Format the chunk-count overlay text used on the chunks-bar.
+     */
+    function formatChunkText(done, total, label) {
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        return label
+            ? `${label} ${done}/${total} (${pct}%)`
+            : `${done}/${total} (${pct}%)`;
+    }
+
+    /**
+     * Render the segmented chunks-bar once `totalChunks` and the set of
+     * already-received chunk indices are known. Caches each segment on the
+     * state object so later per-chunk updates don't query the DOM.
+     * @param {string}   uploadId
+     * @param {number}   totalChunks
+     * @param {number[]} receivedIndices  chunk indices already on the server
+     */
+    function renderChunksBar(uploadId, totalChunks, receivedIndices) {
+        const tr = document.getElementById(`upload-${uploadId}`);
+        if (!tr) return;
+        const bar = tr.querySelector('.chunks-bar');
+        if (!bar) return;
+        bar.innerHTML = '';
+
+        const state = activeUploads.get(uploadId);
+        if (!state) return;
+        state.segments = null;
+        state.segmentText = null;
+        state.continuousMode = false;
+        state.continuousSeg = null;
+
+        const done = (receivedIndices && receivedIndices.length) || 0;
+
+        // Fallback: too many chunks → single continuous bar
+        if (totalChunks > MAX_CHUNK_SEGMENTS) {
+            const pct = totalChunks > 0 ? Math.round((done / totalChunks) * 100) : 0;
+            const seg = document.createElement('div');
+            seg.className = 'chunk-segment chunk-done';
+            seg.style.flex = `0 0 ${pct}%`;
+            bar.appendChild(seg);
+            const text = document.createElement('div');
+            text.className = 'chunks-bar-text';
+            text.textContent = formatChunkText(done, totalChunks, '');
+            bar.appendChild(text);
+            state.segmentText = text;
+            state.continuousMode = true;
+            state.continuousSeg = seg;
+            return;
+        }
+
+        // Discrete segments — one per chunk
+        const doneSet = new Set(receivedIndices || []);
+        state.segments = [];
+        for (let i = 0; i < totalChunks; i++) {
+            const seg = document.createElement('div');
+            seg.className = 'chunk-segment';
+            if (doneSet.has(i)) seg.classList.add('chunk-done');
+            bar.appendChild(seg);
+            state.segments.push(seg);
+        }
+        const text = document.createElement('div');
+        text.className = 'chunks-bar-text';
+        text.textContent = formatChunkText(done, totalChunks, '');
+        bar.appendChild(text);
+        state.segmentText = text;
+    }
+
+    /**
+     * Update one chunk segment's state using the cached reference —
+     * O(1) and no DOM query per chunk.
+     */
+    function setChunkState(uploadId, chunkIndex, stateName) {
+        const state = activeUploads.get(uploadId);
+        if (!state || !state.segments) return;
+        const seg = state.segments[chunkIndex];
+        if (!seg) return;
+        seg.classList.remove('chunk-done', 'chunk-uploading', 'chunk-paused', 'chunk-error');
+        if (stateName) seg.classList.add(`chunk-${stateName}`);
+    }
+
+    /**
+     * Update the overlay text on the chunks-bar; in continuous fallback
+     * mode, also resize the single visible segment to match the percentage.
+     */
+    function updateChunksBarText(uploadId, done, total, label) {
+        const state = activeUploads.get(uploadId);
+        if (!state || !state.segmentText) return;
+        state.segmentText.textContent = formatChunkText(done, total, label);
+        if (state.continuousMode && state.continuousSeg) {
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+            state.continuousSeg.style.flex = `0 0 ${pct}%`;
+        }
+    }
+
     function escapeHtml(str) {
         const d = document.createElement('div');
         d.textContent = str;
@@ -151,6 +250,8 @@ const Uploader = (() => {
 
     /**
      * Update the progress cell of a row managed by this module.
+     * For active uploads, the chunks-bar handles its own segment states;
+     * this only updates the overlay text and the status cell.
      * @param {string} uploadId
      * @param {number} done       chunks completed
      * @param {number} total      total chunks
@@ -160,14 +261,11 @@ const Uploader = (() => {
     function updateRowProgress(uploadId, done, total, statusText, label) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
-        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-        const bar = tr.querySelector('.progress-bar');
-        if (bar) {
-            bar.style.width = pct + '%';
-            bar.textContent = pct > 10 ? pct + '%' : '';
-        }
+        // Update chunks-bar overlay (no-op until renderChunksBar has been called)
+        updateChunksBarText(uploadId, done, total, label);
         const status = tr.querySelector('.status-cell');
         if (status) {
+            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
             if (statusText != null) {
                 status.textContent = statusText;
             } else if (label) {
@@ -190,11 +288,8 @@ const Uploader = (() => {
     function setRowPaused(uploadId, filename) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
-        const bar = tr.querySelector('.progress-bar');
-        if (bar) {
-            bar.classList.remove('progress-bar-animated');
-            bar.classList.replace('progress-bar-striped', 'bg-warning');
-        }
+        const bar = tr.querySelector('.chunks-bar');
+        if (bar) bar.classList.add('paused-active');
         const sc = tr.querySelector('.status-cell');
         if (sc) sc.textContent = '⏸ Paused';
         const action = tr.querySelector('.action-cell');
@@ -211,32 +306,25 @@ const Uploader = (() => {
     function setRowError(uploadId, msg) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
-        const bar = tr.querySelector('.progress-bar');
-        if (bar) {
-            bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-            bar.classList.add('bg-danger');
-        }
+        const bar = tr.querySelector('.chunks-bar');
+        if (bar) bar.classList.add('all-error');
         const sc = tr.querySelector('.status-cell');
         if (sc) sc.innerHTML =
             `<i class="bi bi-exclamation-triangle text-danger"></i> ${msg}`;
         const ac = tr.querySelector('.action-cell');
         if (ac) ac.innerHTML = '';
-    }    /**
-     * Set the row to "Queued" — grey bar, dimmed row, cancel button only.
+    }
+
+    /**
+     * Set the row to "Queued" — dimmed row, cancel button only.
      * The visual dim makes it unmistakable that the upload is waiting.
+     * The chunks-bar is empty (no segments yet — we don't know totalChunks).
      */
     function setRowQueued(uploadId) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
         tr.style.opacity = '0.55';
         tr.setAttribute('data-queued', 'true');
-        const bar = tr.querySelector('.progress-bar');
-        if (bar) {
-            bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-            bar.classList.add('bg-secondary');
-            bar.style.width = '0%';
-            bar.textContent = '';
-        }
         const sc = tr.querySelector('.status-cell');
         if (sc) {
             sc.textContent = '⏳ Queued…';
@@ -252,19 +340,14 @@ const Uploader = (() => {
 
     /**
      * Transition a queued row to "Initializing…" — restores full opacity,
-     * striped bar, and pause+cancel buttons so the upload can begin.
+     * pause+cancel buttons, and clears the queued styling. The chunks-bar
+     * stays empty until renderChunksBar runs after the status fetch.
      */
     function setRowTransitioning(uploadId) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
         tr.style.opacity = '';
         tr.removeAttribute('data-queued');
-        const bar = tr.querySelector('.progress-bar');
-        if (bar) {
-            bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
-            bar.style.width = '0%';
-            bar.textContent = '';
-        }
         const sc = tr.querySelector('.status-cell');
         if (sc) {
             sc.textContent = 'Initializing…';
@@ -317,11 +400,8 @@ const Uploader = (() => {
         // Restore the row to active-upload state
         const tr = document.getElementById(`upload-${uploadId}`);
         if (tr) {
-            const bar = tr.querySelector('.progress-bar');
-            if (bar) {
-                bar.classList.add('progress-bar-animated');
-                bar.classList.replace('bg-warning', 'progress-bar-striped');
-            }
+            const bar = tr.querySelector('.chunks-bar');
+            if (bar) bar.classList.remove('paused-active');
             const action = tr.querySelector('.action-cell');
             if (action) {
                 action.innerHTML = `<button class="btn btn-sm btn-outline-secondary pause-btn"
@@ -382,12 +462,16 @@ const Uploader = (() => {
             // Reuse the existing server-rendered row — don't create a duplicate
             row = document.getElementById(`upload-${uploadId}`);
             if (row) {
-                // Reset the row to "active upload" state
-                const bar = row.querySelector('.progress-bar');
-                if (bar) {
-                    bar.style.width = '0%';
-                    bar.textContent = '';
-                    bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+                // The row may carry legacy HTML (Bootstrap progress) from
+                // dashboard.js's page-load render. Replace the progress cell
+                // with the chunks-bar structure so it can be rendered after
+                // the status fetch.
+                const progressCell = row.querySelector('td:nth-child(3)');
+                if (progressCell && !progressCell.querySelector('.chunks-bar')) {
+                    progressCell.innerHTML = `
+                        <div class="chunks-bar"></div>
+                        <small class="text-muted status-cell">Initializing…</small>
+                    `;
                 }
                 const sc = row.querySelector('.status-cell');
                 if (sc) sc.textContent = 'Initializing…';
@@ -495,6 +579,11 @@ const Uploader = (() => {
             const received = new Set(statusData.received_chunks || []);
             const totalChunks = statusData.total_chunks;
 
+            // Build the segmented chunks-bar now that we know the total and
+            // which chunks already exist on the server (resume case).
+            renderChunksBar(finalId, totalChunks, [...received]);
+            activeUploads.set(finalId, state);
+
             // All chunks already here — complete immediately
             if (received.size === totalChunks) {
                 await complete(finalId);
@@ -575,9 +664,11 @@ const Uploader = (() => {
             const cs = meta.chunk_size || chunkSize;
 
             let done = received.size;
-            // Use "Resuming…" only when chunks were already uploaded;
-            // new uploads should say "Uploading…" from chunk 0.
-            updateRowProgress(uploadId, done, totalChunks, null, done > 0 ? 'Resuming…' : 'Uploading…');
+            // Pick the label once at the start so it stays stable for the
+            // whole chunk loop; new uploads say "Uploading…", resumes keep
+            // saying "Resuming…" all the way until Finalizing.
+            const initialLabel = done > 0 ? 'Resuming…' : 'Uploading…';
+            updateRowProgress(uploadId, done, totalChunks, null, initialLabel);
 
             for (let i = 0; i < totalChunks; i++) {
                 // --- CANCEL CHECK ---
@@ -586,13 +677,16 @@ const Uploader = (() => {
                     activeUploads.delete(uploadId);
                     return;
                 }
-                // --- PAUSE CHECK ---
+                // --- PAUSE CHECK (top of loop — between chunks) ---
                 if (state.paused) {
                     setRowPaused(uploadId, meta.filename);
                     return;
                 }
-                // --- SKIP already-uploaded chunks ---
+                // --- SKIP already-uploaded chunks (rendered as chunk-done on init) ---
                 if (received.has(i)) continue;
+
+                // Mark the segment as in-flight before fetching
+                setChunkState(uploadId, i, 'uploading');
 
                 const start = i * cs;
                 const end = Math.min(start + cs, totalSize);
@@ -609,6 +703,7 @@ const Uploader = (() => {
                     body: formData,
                 });
                 if (!chunkResp.ok) {
+                    setChunkState(uploadId, i, 'error');
                     const e = await chunkResp.json().catch(() => ({}));
                     throw new Error(e.error || `Chunk ${i} upload failed`);
                 }
@@ -618,7 +713,8 @@ const Uploader = (() => {
                 if (!meta.received_chunks) meta.received_chunks = [];
                 meta.received_chunks.push(i);
                 received.add(i);
-                updateRowProgress(uploadId, done, totalChunks, null, 'Uploading…');
+                setChunkState(uploadId, i, 'done');
+                updateRowProgress(uploadId, done, totalChunks, null, initialLabel);
                 // If user paused during this chunk, restore paused UI and bail
                 if (state.paused) {
                     setRowPaused(uploadId, meta.filename);
