@@ -60,14 +60,14 @@ def save_meta(upload_id: str, meta: dict) -> None:
         json.dump(meta, f, indent=2)
 
 
-def init_upload(filename: str, total_size: int, upload_id: str | None = None) -> dict:
+def init_upload(filename: str, total_size: int, upload_id: str | None = None, file_fingerprint: str | None = None) -> dict:
     """
     Initialize a new resumable upload (or return an existing one if same file/size).
 
     Steps:
     1. Check for existing incomplete upload with same filename + size (recovery).
     2. Check disk space and reserve space.
-    3. Create metadata file.
+    3. Create metadata file with optional file_fingerprint for resume verification.
 
     Returns a dict with upload details.
     """
@@ -133,6 +133,7 @@ def init_upload(filename: str, total_size: int, upload_id: str | None = None) ->
         "chunk_size": chunk_size,
         "total_chunks": total_chunks,
         "received_chunks": [],
+        "file_fingerprint": file_fingerprint,
         "created_at": time.time(),
         "last_activity": time.time(),
     }
@@ -222,6 +223,7 @@ def get_upload_status(upload_id: str) -> dict | None:
         "total_chunks": meta["total_chunks"],
         "received_chunks": meta["received_chunks"],
         "chunk_size": meta["chunk_size"],
+        "file_fingerprint": meta.get("file_fingerprint"),
     }
 
 

@@ -262,6 +262,7 @@ def upload_init():
     filename = data.get("filename", "").strip()
     total_size = data.get("total_size", 0)
     upload_id = data.get("upload_id")
+    file_fingerprint = data.get("file_fingerprint")
 
     if not filename:
         return jsonify({"error": "filename is required"}), 400
@@ -281,7 +282,7 @@ def upload_init():
         pass
 
     try:
-        result = init_upload(filename, total_size, upload_id)
+        result = init_upload(filename, total_size, upload_id, file_fingerprint)
         # Check for conflict (existing incomplete upload with same filename/size)
         if result.get("resumed"):
             return jsonify({
