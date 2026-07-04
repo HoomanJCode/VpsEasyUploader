@@ -402,6 +402,11 @@ const Uploader = (() => {
         if (tr) {
             const bar = tr.querySelector('.chunks-bar');
             if (bar) bar.classList.remove('paused-active');
+            const sc = tr.querySelector('.status-cell');
+            if (sc) {
+                sc.textContent = '⏳ Resuming after current upload\u2026';
+                sc.classList.add('fst-italic');
+            }
             const action = tr.querySelector('.action-cell');
             if (action) {
                 action.innerHTML = `<button class="btn btn-sm btn-outline-secondary pause-btn"
@@ -415,12 +420,18 @@ const Uploader = (() => {
             }
         }
         // If the chunk loop already exited (paused between chunks),
-        // start a new one. If it's mid-chunk, it will see paused=false
+        // start a new one — but route it through the upload queue so
+        // it never runs in parallel with another in-flight upload.
+        // If the loop is still mid-chunk, it will see paused=false
         // and continue naturally — no need to start a second loop.
         if (!st._looping) {
-            uploadMissingChunks(uploadId).catch(err => {
-                console.error(`Resume error [${uploadId}]:`, err);
-                setRowError(uploadId, err.message || 'Resume failed');
+            enqueueUpload(async () => {
+                try {
+                    await uploadMissingChunks(uploadId);
+                } catch (err) {
+                    console.error(`Resume error [${uploadId}]:`, err);
+                    setRowError(uploadId, err.message || 'Resume failed');
+                }
             });
         }
         return true;
@@ -758,17 +769,44 @@ const Uploader = (() => {
 
     /**
      * Resume an incomplete upload from the UI.
-     * Called by dashboard when the user clicks Resume on an incomplete row.
-     * Returns true if the upload was successfully resumed, false on failure.
+     * Called by dashboard when the user picks a file to resume a
+     * server-tracked incomplete upload. The actual startUpload is
+     * routed through the upload queue so we never run in parallel with
+     * any in-flight upload.
+     *
+     * Returns a promise that resolves with `true` if the upload
+     * eventually completed, `false` on failure or pre-start cancel.
      */
-    async function resumeFromUI(uploadId, file) {
-        try {
-            await startUpload(uploadId, file, true);
-            return true;
-        } catch (err) {
-            console.error(`Resume failed [${uploadId}]:`, err);
-            return false;
+    function resumeFromUI(uploadId, file) {
+        // Dim the existing dashboard row so the user has immediate
+        // feedback that the resume was accepted but is blocked on the
+        // current upload. Cancelling the row at this stage is a
+        // pre-start cancel handled via cancelUpload + cancelledQueues.
+        setRowQueued(uploadId);
+        // `setRowQueued` writes a Cancel button titled "Remove from
+        // queue" which is the right wording for a drag-drop queue row,
+        // but for a queued resume (file picked, not yet started) the
+        // more accurate label is "Cancel queued resume".
+        const preRow = document.getElementById(`upload-${uploadId}`);
+        if (preRow) {
+            const cancelBtn = preRow.querySelector('.cancel-btn');
+            if (cancelBtn) cancelBtn.setAttribute('title', 'Cancel queued resume');
         }
+        return enqueueUpload(async () => {
+            // Was the user (or a script) cancelled before we got our turn?
+            // Honor it — don't start a fresh upload that nobody asked for.
+            if (cancelledQueues.has(uploadId)) {
+                cancelledQueues.delete(uploadId);
+                return false;
+            }
+            try {
+                await startUpload(uploadId, file, true);
+                return true;
+            } catch (err) {
+                console.error(`Resume failed [${uploadId}]:`, err);
+                return false;
+            }
+        });
     }
 
     /**
@@ -788,8 +826,11 @@ const Uploader = (() => {
             st.cancelled = true;
             st.paused = false; // unpause so loop wakes up and sees cancelled
             activeUploads.delete(uploadId);
-        } else if (typeof uploadId === 'string' && uploadId.startsWith('queued-')) {
-            // Queued file hasn't started yet — mark it so the queue loop skips it
+        } else {
+            // Either it's a queued file drop (qid starts with 'queued-')
+            // or a queued resume waiting its turn in uploadQueue.
+            // Either way mark in cancelledQueues so the queued task
+            // notices and no-ops when it finally gets its turn.
             cancelledQueues.add(uploadId);
         }
         removeUploadRow(uploadId);
@@ -829,9 +870,36 @@ const Uploader = (() => {
         });
     }
 
-    // Promise that serialises all uploads — each batch chains onto the
-    // previous via .then(), so separate drop/browse events run one at a time.
+    // Promise that serialises all uploads — each task chains onto the
+    // previous via .then(), so separate drop/browse/resume events run
+    // one at a time. The inner .catch keeps the chain alive even if a
+    // task's caller forgot to swallow its own errors — otherwise a
+    // rejection becomes the new uploadQueue and every subsequent
+    // batch would be silently skipped.
     let uploadQueue = Promise.resolve();
+
+    /**
+     * Append `task` to the upload queue and return a promise that
+     * resolves ONLY when this specific task finishes.
+     *
+     * Bug fix: `resumeFromUI` and `resumeUploadFromPause` previously
+     * ran `startUpload` / `uploadMissingChunks` directly, letting them
+     * execute in parallel with any in-flight upload. Every entry point
+     * (new drop, paused-resume, incomplete-resume) now goes through
+     * this helper so we guarantee only one active upload at a time.
+     *
+     * @param {() => Promise<any>|any} task
+     * @returns {Promise<any>} resolves/rejects when the task does
+     */
+    function enqueueUpload(task) {
+        const myTask = uploadQueue.then(async () => {
+            await task();
+        });
+        uploadQueue = myTask.catch(err => {
+            console.error('Queue chain error:', err);
+        });
+        return myTask;
+    }
 
     async function handleFiles(fileList) {
         if (!fileList || fileList.length === 0) return;
@@ -849,11 +917,12 @@ const Uploader = (() => {
             setRowQueued(entry.qid);
         }
 
-        // Chain onto the queue so separate drop/browse events are sequential.
-        // The .catch keeps the chain alive even if an unexpected error escapes
-        // startUpload's internal try/catch — otherwise a rejection becomes the
-        // new uploadQueue and every subsequent batch would be silently skipped.
-        uploadQueue = uploadQueue.then(async () => {
+        // Chain onto the upload queue so this batch serialises against
+        // any in-flight or queued upload from a previous drop, browse,
+        // or resume. enqueueUpload returns a per-task promise; we ignore
+        // it here because addUploadRow already created the visible rows
+        // and the queued task will pick them up when its turn arrives.
+        enqueueUpload(async () => {
             let total = 0;
             for (const f of files) total += f.size;
 
@@ -882,8 +951,6 @@ const Uploader = (() => {
                 setRowTransitioning(entry.qid);
                 await startUpload(entry.qid, entry.file, false, entry.row);
             }
-        }).catch(err => {
-            console.error('Queue chain error:', err);
         });
     }
 
