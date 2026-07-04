@@ -616,20 +616,25 @@ const Uploader = (() => {
         });
     }
 
+    let uploadQueue = Promise.resolve();
+
     async function handleFiles(fileList) {
         if (!fileList || fileList.length === 0) return;
-        let total = 0;
-        const files = [];
-        for (const f of fileList) { total += f.size; files.push(f); }
-        try {
-            const r = await fetch(`/check_space?size=${total}`, { headers: csrfHeaders() });
-            const d = await r.json();
-            if (!d.available) {
-                showToast('Error', `Need ${formatBytes(total)}, have ${formatBytes(d.free)} free.`, 'danger');
-                return;
-            }
-        } catch (_) { /* server will reject individual uploads */ }
-        for (const f of files) await addFile(f);
+        // Chain onto the queue so separate drop/browse events are sequential
+        uploadQueue = uploadQueue.then(async () => {
+            let total = 0;
+            const files = [];
+            for (const f of fileList) { total += f.size; files.push(f); }
+            try {
+                const r = await fetch(`/check_space?size=${total}`, { headers: csrfHeaders() });
+                const d = await r.json();
+                if (!d.available) {
+                    showToast('Error', `Need ${formatBytes(total)}, have ${formatBytes(d.free)} free.`, 'danger');
+                    return;
+                }
+            } catch (_) { /* server will reject individual uploads */ }
+            for (const f of files) await addFile(f);
+        });
     }
 
     return {
