@@ -869,13 +869,46 @@ const Uploader = (() => {
                 'You can resume it from the incomplete uploads list later.',
             );
         } else {
+            // Fire the server DELETE and explicitly check the response.
+            // The prior version swallowed both network errors AND non-2xx
+            // HTTP responses, so a 403 (CSRF session stale), 500 (chunker
+            // permission error caught by shutil.rmtree(ignore_errors=True))
+            // or a 404 (record already gone) all looked identical to the
+            // user as "Cancelled" — even though the row would come back on
+            // the next refresh because the chunks were never removed.
             try {
-                await fetch(`/upload/cancel/${uploadId}`, {
+                const resp = await fetch(`/upload/cancel/${uploadId}`, {
                     method: 'DELETE',
                     headers: csrfHeaders(),
                 });
-            } catch (_) { /* best effort */ }
-            showToast('Cancelled', 'Upload has been cancelled and cleaned up.');
+                if (resp.ok) {
+                    // Don't auto-refresh /uploads/incomplete here:
+                    // refreshIncompleteUploads does tbody.innerHTML = '' and
+                    // re-renders from server only, which would clobber any
+                    // in-flight queued-drop rows that handleFiles set up
+                    // between page load and now (opacity 0.55, "⏳ Queued…"
+                    // status, cancel-only button). The cancelled row is
+                    // already removed by removeUploadRow above and the
+                    // server record is genuinely gone — the page-level
+                    // refresh on next navigation will be correct.
+                    showToast('Cancelled', 'Upload has been cancelled and cleaned up.');
+                } else {
+                    console.error(`Cancel failed for ${uploadId}: HTTP ${resp.status}`);
+                    showToast('Cancel Failed',
+                        `The server returned HTTP ${resp.status}. The upload row was removed ` +
+                        `from your view, but its chunks may still exist on the server. ` +
+                        `Try refreshing — the record will reappear if it's still there.`,
+                        'danger',
+                    );
+                }
+            } catch (err) {
+                console.error('Cancel network error:', err);
+                showToast('Cancel Failed',
+                    'Network error talking to the server. The upload row was removed from ' +
+                    'your view, but it may still exist on disk. Check your connection and refresh.',
+                    'danger',
+                );
+            }
         }
     }
 

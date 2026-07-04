@@ -375,6 +375,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const tr = document.createElement('tr');
                 tr.id = `upload-${u.upload_id}`;
                 tr.setAttribute('data-upload-id', u.upload_id);
+                // Tag the row so cancelUpload can recognise it as a
+                // server-side incomplete record (vs a fresh drag-drop
+                // "new" or a queued resume "resume"). Treat as a full
+                // cancel — DELETE the chunks. Without this tag the
+                // fallback "null === 'resume' === false" still works,
+                // but explicit is easier to reason about in tests.
+                tr.setAttribute('data-source', 'incomplete');
                 tr.innerHTML = `
                     <td class="text-truncate" style="max-width:300px;">${escapeHtml(u.filename)}</td>
                     <td>${Uploader.formatBytes(u.total_size)}</td>
@@ -510,7 +517,9 @@ document.addEventListener('DOMContentLoaded', () => {
         setInterval(updateDiskInfo, 30000);
     }
 
-    // Expose for uploader callback
+    // Expose for uploader callback (uploader.js's complete() calls
+    // refreshFiles + refreshDiskInfo on success so the page stays
+    // in sync without a navigation).
     window.refreshFiles = refreshFiles;
     window.refreshDiskInfo = updateDiskInfo;
 
