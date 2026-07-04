@@ -409,8 +409,16 @@ const Uploader = (() => {
 
         } catch (err) {
             console.error(`Upload error [${uploadId}]:`, err);
-            setRowError(row.id.replace('upload-', ''), err.message || 'Upload failed');
             showToast('Upload Failed', err.message, 'danger');
+            // If init failed before the row was renamed from 'temp' to a real
+            // UUID, clean up the stale state and DOM row so the next new upload
+            // doesn't collide on the 'temp' ID.
+            if (!uploadId && activeUploads.has('temp')) {
+                activeUploads.delete('temp');
+                removeUploadRow('temp');
+            } else {
+                setRowError(row.id.replace('upload-', ''), err.message || 'Upload failed');
+            }
         }
     }
 
