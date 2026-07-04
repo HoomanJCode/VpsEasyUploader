@@ -221,23 +221,27 @@ const Uploader = (() => {
             `<i class="bi bi-exclamation-triangle text-danger"></i> ${msg}`;
         const ac = tr.querySelector('.action-cell');
         if (ac) ac.innerHTML = '';
-    }
-
-    /**
-     * Set the row to "Queued" — grey bar, cancel button only.
+    }    /**
+     * Set the row to "Queued" — grey bar, dimmed row, cancel button only.
+     * The visual dim makes it unmistakable that the upload is waiting.
      */
     function setRowQueued(uploadId) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
+        tr.style.opacity = '0.55';
+        tr.setAttribute('data-queued', 'true');
         const bar = tr.querySelector('.progress-bar');
         if (bar) {
             bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
-            bar.classList.add('bg-light');
+            bar.classList.add('bg-secondary');
             bar.style.width = '0%';
             bar.textContent = '';
         }
         const sc = tr.querySelector('.status-cell');
-        if (sc) sc.textContent = '⏳ Queued…';
+        if (sc) {
+            sc.textContent = '⏳ Queued…';
+            sc.classList.add('fst-italic');
+        }
         const action = tr.querySelector('.action-cell');
         if (action) {
             action.innerHTML = `<button class="btn btn-sm btn-outline-danger cancel-btn"
@@ -247,12 +251,14 @@ const Uploader = (() => {
     }
 
     /**
-     * Transition a queued row to "Initializing…" — restores striped bar
-     * and pause+cancel buttons so the upload can begin.
+     * Transition a queued row to "Initializing…" — restores full opacity,
+     * striped bar, and pause+cancel buttons so the upload can begin.
      */
     function setRowTransitioning(uploadId) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
+        tr.style.opacity = '';
+        tr.removeAttribute('data-queued');
         const bar = tr.querySelector('.progress-bar');
         if (bar) {
             bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
@@ -260,7 +266,10 @@ const Uploader = (() => {
             bar.textContent = '';
         }
         const sc = tr.querySelector('.status-cell');
-        if (sc) sc.textContent = 'Initializing…';
+        if (sc) {
+            sc.textContent = 'Initializing…';
+            sc.classList.remove('fst-italic');
+        }
         const tc = tr.querySelector('.time-cell');
         if (tc) tc.textContent = 'now';
         const action = tr.querySelector('.action-cell');
@@ -268,7 +277,7 @@ const Uploader = (() => {
             action.innerHTML = `<button class="btn btn-sm btn-outline-secondary pause-btn"
                 data-upload-id="${uploadId}" title="Pause">
                 <i class="bi bi-pause-fill"></i></button>
-                <button class="btn btn-sm btn-outline-danger cancel-btn"
+            <button class="btn btn-sm btn-outline-danger cancel-btn"
                 data-upload-id="${uploadId}" title="Cancel">
                 <i class="bi bi-x-lg"></i></button>`;
             tr.querySelector('.pause-btn').addEventListener('click', () => pauseUpload(uploadId));
@@ -566,7 +575,9 @@ const Uploader = (() => {
             const cs = meta.chunk_size || chunkSize;
 
             let done = received.size;
-            updateRowProgress(uploadId, done, totalChunks, null, 'Resuming…');
+            // Use "Resuming…" only when chunks were already uploaded;
+            // new uploads should say "Uploading…" from chunk 0.
+            updateRowProgress(uploadId, done, totalChunks, null, done > 0 ? 'Resuming…' : 'Uploading…');
 
             for (let i = 0; i < totalChunks; i++) {
                 // --- CANCEL CHECK ---
@@ -722,6 +733,8 @@ const Uploader = (() => {
         });
     }
 
+    // Promise that serialises all uploads — each batch chains onto the
+    // previous via .then(), so separate drop/browse events run one at a time.
     let uploadQueue = Promise.resolve();
 
     async function handleFiles(fileList) {
@@ -740,7 +753,10 @@ const Uploader = (() => {
             setRowQueued(entry.qid);
         }
 
-        // Chain onto the queue so separate drop/browse events are sequential
+        // Chain onto the queue so separate drop/browse events are sequential.
+        // The .catch keeps the chain alive even if an unexpected error escapes
+        // startUpload's internal try/catch — otherwise a rejection becomes the
+        // new uploadQueue and every subsequent batch would be silently skipped.
         uploadQueue = uploadQueue.then(async () => {
             let total = 0;
             for (const f of files) total += f.size;
@@ -770,6 +786,8 @@ const Uploader = (() => {
                 setRowTransitioning(entry.qid);
                 await startUpload(entry.qid, entry.file, false, entry.row);
             }
+        }).catch(err => {
+            console.error('Queue chain error:', err);
         });
     }
 
