@@ -147,8 +147,13 @@ const Uploader = (() => {
 
     /**
      * Update the progress cell of a row managed by this module.
+     * @param {string} uploadId
+     * @param {number} done       chunks completed
+     * @param {number} total      total chunks
+     * @param {string} [statusText]  custom override (e.g. 'Finalizing…')
+     * @param {string} [label]       prefix for default format → "label X/Y chunks (Z%)"
      */
-    function updateRowProgress(uploadId, done, total, statusText) {
+    function updateRowProgress(uploadId, done, total, statusText, label) {
         const tr = document.getElementById(`upload-${uploadId}`);
         if (!tr) return;
         const pct = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -158,7 +163,15 @@ const Uploader = (() => {
             bar.textContent = pct > 10 ? pct + '%' : '';
         }
         const status = tr.querySelector('.status-cell');
-        if (status) status.textContent = statusText || `${done}/${total} chunks (${pct}%)`;
+        if (status) {
+            if (statusText != null) {
+                status.textContent = statusText;
+            } else if (label) {
+                status.textContent = `${label} ${done}/${total} chunks (${pct}%)`;
+            } else {
+                status.textContent = `${done}/${total} chunks (${pct}%)`;
+            }
+        }
         const state = activeUploads.get(uploadId);
         if (state) {
             const tc = tr.querySelector('.time-cell');
@@ -388,9 +401,7 @@ const Uploader = (() => {
                 return;
             }
 
-            const initPct = totalChunks > 0 ? Math.round((received.size / totalChunks) * 100) : 0;
-            updateRowProgress(finalId, received.size, totalChunks,
-                `${received.size}/${totalChunks} chunks (${initPct}%)`);
+            updateRowProgress(finalId, received.size, totalChunks);
             state.progress = received.size;
 
             // Step 4 — upload missing chunks (happens async below)
@@ -455,8 +466,7 @@ const Uploader = (() => {
         const cs = meta.chunk_size || chunkSize;
 
         let done = received.size;
-        const resumePct = totalChunks > 0 ? Math.round((done / totalChunks) * 100) : 0;
-        updateRowProgress(uploadId, done, totalChunks, `Resuming… ${done}/${totalChunks} chunks (${resumePct}%)`);
+        updateRowProgress(uploadId, done, totalChunks, null, 'Resuming…');
 
         for (let i = 0; i < totalChunks; i++) {
             // --- CANCEL CHECK ---
@@ -494,9 +504,7 @@ const Uploader = (() => {
             }
             done++;
             state.progress = done;
-            const loopPct = totalChunks > 0 ? Math.round((done / totalChunks) * 100) : 0;
-            updateRowProgress(uploadId, done, totalChunks,
-                `Uploading… ${done}/${totalChunks} chunks (${loopPct}%)`);
+            updateRowProgress(uploadId, done, totalChunks, null, 'Uploading…');
             // If user paused during this chunk, restore paused UI and bail
             if (state.paused) {
                 setRowPaused(uploadId, meta.filename);
