@@ -122,7 +122,7 @@ const Uploader = (() => {
                         data-upload-id="${uploadId}" title="Pause">
                     <i class="bi bi-pause-fill"></i>
                 </button>
-                <button class="btn btn-sm btn-outline-danger cancel-btn ms-1"
+                <button class="btn btn-sm btn-outline-danger cancel-btn"
                         data-upload-id="${uploadId}" title="Cancel">
                     <i class="bi bi-x-lg"></i>
                 </button>
@@ -182,7 +182,7 @@ const Uploader = (() => {
         action.innerHTML = `<button class="btn btn-sm btn-outline-primary resume-btn"
             data-upload-id="${uploadId}" data-filename="${escapeHtml(filename)}" title="Resume">
             <i class="bi bi-play-fill"></i></button>
-            <button class="btn btn-sm btn-outline-danger cancel-btn ms-1"
+            <button class="btn btn-sm btn-outline-danger cancel-btn"
             data-upload-id="${uploadId}" title="Cancel">
             <i class="bi bi-x-lg"></i></button>`;
         // Wire up cancel button on paused rows (dashboard delegation handles the rest)

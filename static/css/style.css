@@ -72,6 +72,13 @@ main.container {
 }
 
 /* ===== Action Buttons ===== */
+.action-cell {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.25rem;
+}
+
 .action-btn {
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
