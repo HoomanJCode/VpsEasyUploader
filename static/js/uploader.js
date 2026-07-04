@@ -248,11 +248,35 @@ const Uploader = (() => {
         if (!st || !st.pausedByUser) return false;
         st.paused = false;
         st.pausedByUser = false;
-        // Resume the chunk loop
-        uploadMissingChunks(uploadId).catch(err => {
-            console.error(`Resume error [${uploadId}]:`, err);
-            setRowError(uploadId, err.message || 'Resume failed');
-        });
+        // Restore the row to active-upload state
+        const tr = document.getElementById(`upload-${uploadId}`);
+        if (tr) {
+            const bar = tr.querySelector('.progress-bar');
+            if (bar) {
+                bar.classList.add('progress-bar-animated');
+                bar.classList.replace('bg-warning', 'progress-bar-striped');
+            }
+            const action = tr.querySelector('.action-cell');
+            if (action) {
+                action.innerHTML = `<button class="btn btn-sm btn-outline-secondary pause-btn"
+                    data-upload-id="${uploadId}" title="Pause">
+                    <i class="bi bi-pause-fill"></i></button>
+                    <button class="btn btn-sm btn-outline-danger cancel-btn"
+                    data-upload-id="${uploadId}" title="Cancel">
+                    <i class="bi bi-x-lg"></i></button>`;
+                tr.querySelector('.pause-btn').addEventListener('click', () => pauseUpload(uploadId));
+                tr.querySelector('.cancel-btn').addEventListener('click', () => cancelUpload(uploadId));
+            }
+        }
+        // If the chunk loop already exited (paused between chunks),
+        // start a new one. If it's mid-chunk, it will see paused=false
+        // and continue naturally — no need to start a second loop.
+        if (!st._looping) {
+            uploadMissingChunks(uploadId).catch(err => {
+                console.error(`Resume error [${uploadId}]:`, err);
+                setRowError(uploadId, err.message || 'Resume failed');
+            });
+        }
         return true;
     }
 
@@ -376,12 +400,19 @@ const Uploader = (() => {
                     const btn = row.querySelector(selector);
                     if (!btn) return;
                     btn.setAttribute('data-upload-id', finalId);
+                    // Also update data-filename if the button has it (e.g. resume-btn)
+                    if (btn.hasAttribute('data-filename')) {
+                        btn.setAttribute('data-filename', file.name);
+                    }
                     const clone = btn.cloneNode(true);
                     btn.replaceWith(clone);
-                    clone.addEventListener('click', handler);
+                    if (handler) clone.addEventListener('click', handler);
                 };
                 rewireBtn('.pause-btn', () => pauseUpload(finalId));
                 rewireBtn('.cancel-btn', () => cancelUpload(finalId));
+                // If user paused during init, .pause-btn was already replaced
+                // by a .resume-btn carrying 'temp'. Fix its data-upload-id too.
+                rewireBtn('.resume-btn', null);
             }
 
             // Step 3 — get upload status (which chunks already exist)
@@ -465,67 +496,74 @@ const Uploader = (() => {
     async function uploadMissingChunks(uploadId) {
         const state = activeUploads.get(uploadId);
         if (!state || !state.meta) return;
+        // Guard against double loops (e.g. resume clicked while old loop
+        // is mid-chunk — resumeUploadFromPause checks this flag).
+        if (state._looping) return;
+        state._looping = true;
 
-        const meta = state.meta;
-        const file = state.file;
-        const totalChunks = meta.total_chunks;
-        const received = new Set(meta.received_chunks || []);
-        const totalSize = meta.total_size;
-        const cs = meta.chunk_size || chunkSize;
+        try {
+            const meta = state.meta;
+            const file = state.file;
+            const totalChunks = meta.total_chunks;
+            const received = new Set(meta.received_chunks || []);
+            const totalSize = meta.total_size;
+            const cs = meta.chunk_size || chunkSize;
 
-        let done = received.size;
-        updateRowProgress(uploadId, done, totalChunks, null, 'Resuming…');
+            let done = received.size;
+            updateRowProgress(uploadId, done, totalChunks, null, 'Resuming…');
 
-        for (let i = 0; i < totalChunks; i++) {
-            // --- CANCEL CHECK ---
-            if (state.cancelled) {
-                removeUploadRow(uploadId);
-                activeUploads.delete(uploadId);
-                return;
+            for (let i = 0; i < totalChunks; i++) {
+                // --- CANCEL CHECK ---
+                if (state.cancelled) {
+                    removeUploadRow(uploadId);
+                    activeUploads.delete(uploadId);
+                    return;
+                }
+                // --- PAUSE CHECK ---
+                if (state.paused) {
+                    setRowPaused(uploadId, meta.filename);
+                    return;
+                }
+                // --- SKIP already-uploaded chunks ---
+                if (received.has(i)) continue;
+
+                const start = i * cs;
+                const end = Math.min(start + cs, totalSize);
+                const blob = file.slice(start, end);
+
+                const formData = new FormData();
+                formData.append('upload_id', uploadId);
+                formData.append('chunk_index', String(i));
+                formData.append('chunk_data', blob, `chunk_${i}`);
+
+                const chunkResp = await fetch('/upload/chunk', {
+                    method: 'POST',
+                    headers: csrfHeaders(),
+                    body: formData,
+                });
+                if (!chunkResp.ok) {
+                    const e = await chunkResp.json().catch(() => ({}));
+                    throw new Error(e.error || `Chunk ${i} upload failed`);
+                }
+                done++;
+                state.progress = done;
+                // Keep meta in sync so pause+resume starts from the correct count
+                if (!meta.received_chunks) meta.received_chunks = [];
+                meta.received_chunks.push(i);
+                received.add(i);
+                updateRowProgress(uploadId, done, totalChunks, null, 'Uploading…');
+                // If user paused during this chunk, restore paused UI and bail
+                if (state.paused) {
+                    setRowPaused(uploadId, meta.filename);
+                    return;
+                }
             }
-            // --- PAUSE CHECK ---
-            if (state.paused) {
-                // Don't remove from active — stay in the map so resume can find us
-                setRowPaused(uploadId, meta.filename);
-                return; // exit the loop; resumeUploadFromPause() will re-enter
-            }
-            // --- SKIP already-uploaded chunks ---
-            if (received.has(i)) continue;
 
-            const start = i * cs;
-            const end = Math.min(start + cs, totalSize);
-            const blob = file.slice(start, end);
-
-            const formData = new FormData();
-            formData.append('upload_id', uploadId);
-            formData.append('chunk_index', String(i));
-            formData.append('chunk_data', blob, `chunk_${i}`);
-
-            const chunkResp = await fetch('/upload/chunk', {
-                method: 'POST',
-                headers: csrfHeaders(),
-                body: formData,
-            });
-            if (!chunkResp.ok) {
-                const e = await chunkResp.json().catch(() => ({}));
-                throw new Error(e.error || `Chunk ${i} upload failed`);
-            }
-            done++;
-            state.progress = done;
-            // Keep meta in sync so pause+resume starts from the correct count
-            if (!meta.received_chunks) meta.received_chunks = [];
-            meta.received_chunks.push(i);
-            received.add(i);
-            updateRowProgress(uploadId, done, totalChunks, null, 'Uploading…');
-            // If user paused during this chunk, restore paused UI and bail
-            if (state.paused) {
-                setRowPaused(uploadId, meta.filename);
-                return;
-            }
+            // All chunks done
+            await complete(uploadId);
+        } finally {
+            state._looping = false;
         }
-
-        // All chunks done
-        await complete(uploadId);
     }
 
     async function complete(uploadId) {
