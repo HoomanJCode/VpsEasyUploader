@@ -26,6 +26,127 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# ── OS Detection & Package Manager ──────────────────────────────────────────
+DISTRO="unknown"
+PKG_MANAGER=""
+PKG_INSTALL_CMD=""
+
+if [[ "$OSTYPE" == "linux-gnu"* ]] || [[ "$OSTYPE" == "linux"* ]]; then
+    # Check for Debian/Ubuntu (apt)
+    if command -v apt-get &>/dev/null; then
+        DISTRO="debian"
+        PKG_MANAGER="apt"
+        PKG_INSTALL_CMD="sudo apt-get install -y"
+    # Check for RHEL/CentOS/Fedora (dnf)
+    elif command -v dnf &>/dev/null; then
+        DISTRO="rhel"
+        PKG_MANAGER="dnf"
+        PKG_INSTALL_CMD="sudo dnf install -y"
+    # Check for older RHEL/CentOS (yum)
+    elif command -v yum &>/dev/null; then
+        DISTRO="rhel"
+        PKG_MANAGER="yum"
+        PKG_INSTALL_CMD="sudo yum install -y"
+    # Check for Arch (pacman)
+    elif command -v pacman &>/dev/null; then
+        DISTRO="arch"
+        PKG_MANAGER="pacman"
+        PKG_INSTALL_CMD="sudo pacman -S --noconfirm"
+    # Check for Alpine (apk)
+    elif command -v apk &>/dev/null; then
+        DISTRO="alpine"
+        PKG_MANAGER="apk"
+        PKG_INSTALL_CMD="sudo apk add"
+    fi
+fi
+
+# Parse --yes flag for non-interactive mode
+SKIP_CONFIRM=false
+for arg in "$@"; do
+    if [[ "$arg" == "-y" ]] || [[ "$arg" == "--yes" ]]; then
+        SKIP_CONFIRM=true
+    fi
+done
+
+has_sudo() {
+    # Check if we can run sudo without a password (or with cached credentials)
+    sudo -n true 2>/dev/null
+}
+
+install_system_packages() {
+    local description="$1"
+    shift
+    local pkgs=("$@")
+    local missing=()
+
+    # Determine which packages are actually missing
+    # First try binary detection (works on all distros), then package-manager queries
+    for pkg in "${pkgs[@]}"; do
+        local found=false
+        # Map common package names to their binaries for quick detection
+        case "$pkg" in
+            python3|python)   command -v python3 &>/dev/null && found=true ;;
+            python3-pip|python-pip|py3-pip) command -v pip3 &>/dev/null && found=true ;;
+            python3-venv)     python3 -m venv --help &>/dev/null 2>&1 && found=true ;;
+            ffmpeg)           command -v ffmpeg &>/dev/null && found=true ;;
+        esac
+
+        if $found; then
+            continue  # Already available, skip
+        fi
+
+        # Fall back to package-manager queries (Debian/RHEL)
+        if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+            if ! rpm -q "$pkg" &>/dev/null 2>&1; then
+                missing+=("$pkg")
+            fi
+        fi
+    done
+
+    # If nothing is missing, we're done
+    if [ ${#missing[@]} -eq 0 ]; then
+        return 0
+    fi
+
+    echo -e "${YELLOW}[!] Missing ${description}: ${missing[*]}${NC}"
+
+    if [ -z "$PKG_INSTALL_CMD" ]; then
+        echo -e "${RED}[✗] Cannot auto-install — no supported package manager detected.${NC}"
+        echo -e "${RED}    Please install manually: ${missing[*]}${NC}"
+        return 1
+    fi
+
+    # Ask for confirmation (unless --yes flag)
+    if ! $SKIP_CONFIRM; then
+        echo -e "${BLUE}[i] Will run: ${PKG_INSTALL_CMD} ${missing[*]}${NC}"
+        read -rp "Proceed with installation? [Y/n] " confirm
+        if [[ "$confirm" =~ ^[Nn]$ ]]; then
+            echo -e "${YELLOW}[!] Skipped. Please install ${missing[*]} manually and re-run setup.${NC}"
+            return 1
+        fi
+    fi
+
+    # Check if we have sudo access
+    if [[ "$PKG_INSTALL_CMD" == sudo* ]] && ! has_sudo; then
+        echo -e "${YELLOW}[!] Sudo required. You may be prompted for your password.${NC}"
+    fi
+
+    # Update apt cache first if on Debian
+    if [ "$PKG_MANAGER" = "apt" ]; then
+        echo -e "${BLUE}[i] Updating apt package cache...${NC}"
+        sudo apt-get update -qq 2>/dev/null || true
+    fi
+
+    echo -e "${BLUE}[i] Installing: ${missing[*]}...${NC}"
+    if $PKG_INSTALL_CMD "${missing[@]}"; then
+        echo -e "${GREEN}[✓] ${description} installed successfully${NC}"
+        return 0
+    else
+        echo -e "${RED}[✗] Failed to install ${description}. Please install manually.${NC}"
+        return 1
+    fi
+}
+
 # ── Banner ──────────────────────────────────────────────────────────────────
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════╗"
@@ -47,24 +168,83 @@ if [ -f ".env" ]; then
     fi
 fi
 
-# ── Check Python 3 ──────────────────────────────────────────────────────────
-echo -e "${CYAN}[1/7] Checking Python 3...${NC}"
+# ── Install System Dependencies ──────────────────────────────────────────────
+echo -e "${CYAN}[1/7] Installing system dependencies...${NC}"
+
+# Map package names per distro for Python
+PYTHON3_PKG="python3"
+PIP_PKG="python3-pip"
+VENV_PKG="python3-venv"
+FFMPEG_PKG="ffmpeg"
+
+case "$PKG_MANAGER" in
+    dnf|yum)
+        PYTHON3_PKG="python3"
+        PIP_PKG="python3-pip"
+        VENV_PKG="python3"  # venv is bundled with python3 on RHEL
+        ;;
+    pacman)
+        PYTHON3_PKG="python"
+        PIP_PKG="python-pip"
+        VENV_PKG="python"
+        ;;
+    apk)
+        PYTHON3_PKG="python3"
+        PIP_PKG="py3-pip"
+        VENV_PKG="python3"
+        ;;
+esac
+
+# Install Python + pip + venv
+install_system_packages "Python 3 toolchain" "$PYTHON3_PKG" "$PIP_PKG" "$VENV_PKG" || {
+    echo -e "${RED}[✗] Python 3 is required. Install it manually and re-run setup.${NC}"
+    exit 1
+}
+
+# Verify Python is now available
 if ! command -v python3 &>/dev/null; then
-    echo -e "${RED}[✗] Python 3 is not installed. Please install Python 3.8+ and try again.${NC}"
-    echo "    Ubuntu/Debian: sudo apt install python3 python3-pip python3-venv"
-    echo "    CentOS/RHEL:   sudo dnf install python3 python3-pip"
+    echo -e "${RED}[✗] Python 3 is still not available after install. Please check your system.${NC}"
     exit 1
 fi
 
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}')
-echo -e "${GREEN}[✓] Found $PYTHON_VERSION${NC}"
+echo -e "${GREEN}[✓] Python $PYTHON_VERSION${NC}"
 
-# Check pip
+# Verify pip is available now
 if ! command -v pip3 &>/dev/null && ! python3 -m pip --version &>/dev/null; then
-    echo -e "${RED}[✗] pip is not installed. Please install python3-pip.${NC}"
+    echo -e "${RED}[✗] pip is still not available after install. Please check your system.${NC}"
     exit 1
 fi
 echo -e "${GREEN}[✓] pip available${NC}"
+
+# Install ffmpeg for video thumbnail generation (optional but recommended)
+echo ""
+if command -v ffmpeg &>/dev/null; then
+    echo -e "${GREEN}[✓] ffmpeg found (video thumbnails enabled)${NC}"
+else
+    echo -e "${YELLOW}[i] ffmpeg not found — video thumbnails will be unavailable.${NC}"
+    if [ -n "$PKG_INSTALL_CMD" ]; then
+        _install_ffmpeg=false
+        if $SKIP_CONFIRM; then
+            _install_ffmpeg=true
+        else
+            read -rp "Install ffmpeg for video thumbnail support? [Y/n] " inst_ffmpeg
+            if [[ ! "$inst_ffmpeg" =~ ^[Nn]$ ]]; then
+                _install_ffmpeg=true
+            fi
+        fi
+
+        if $_install_ffmpeg; then
+            # Temporarily skip the internal confirm since user already agreed
+            _saved_skip="$SKIP_CONFIRM"
+            SKIP_CONFIRM=true
+            install_system_packages "ffmpeg" "$FFMPEG_PKG" || true
+            SKIP_CONFIRM="$_saved_skip"
+        else
+            echo -e "${BLUE}[i] Skipped ffmpeg. Video thumbnails will not be generated.${NC}"
+        fi
+    fi
+fi
 
 # ── Virtual environment ─────────────────────────────────────────────────────
 echo ""
