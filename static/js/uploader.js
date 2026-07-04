@@ -199,9 +199,11 @@ const Uploader = (() => {
             bar.classList.remove('progress-bar-animated', 'progress-bar-striped');
             bar.classList.add('bg-danger');
         }
-        tr.querySelector('.status-cell').innerHTML =
+        const sc = tr.querySelector('.status-cell');
+        if (sc) sc.innerHTML =
             `<i class="bi bi-exclamation-triangle text-danger"></i> ${msg}`;
-        tr.querySelector('.action-cell').innerHTML = '';
+        const ac = tr.querySelector('.action-cell');
+        if (ac) ac.innerHTML = '';
     }
 
     function removeUploadRow(uploadId) {
@@ -349,7 +351,7 @@ const Uploader = (() => {
 
             // Resolve final upload_id (server may return existing one on conflict)
             const finalId = initData.upload_id;
-            if (finalId !== (uploadId || finalId)) {
+            if (finalId !== (uploadId || 'temp')) {
                 // Update state key and row id
                 activeUploads.delete(uploadId || 'temp');
                 activeUploads.set(finalId, state);
@@ -386,8 +388,9 @@ const Uploader = (() => {
                 return;
             }
 
+            const initPct = totalChunks > 0 ? Math.round((received.size / totalChunks) * 100) : 0;
             updateRowProgress(finalId, received.size, totalChunks,
-                `${received.size}/${totalChunks} chunks`);
+                `${received.size}/${totalChunks} chunks (${initPct}%)`);
             state.progress = received.size;
 
             // Step 4 — upload missing chunks (happens async below)
