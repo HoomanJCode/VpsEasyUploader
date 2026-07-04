@@ -467,8 +467,12 @@ const Uploader = (() => {
             // Reuse the pre-created queued row (already transitioned via setRowTransitioning)
             row = existingRow;
             // Guard against the narrow race where user cancelled between
-            // setRowTransitioning and the synchronous body of startUpload
-            if (cancelledQueues.has(row.id.replace('upload-', ''))) return;
+            // setRowTransitioning and the synchronous body of startUpload.
+            // Check both doomed paths: the Set (post-init qid rename) and
+            // the data-cancelled attribute that cancelUpload stamps on
+            // the row (which survives DOM removal and ID mutates).
+            if (row.getAttribute('data-cancelled') === 'true' ||
+                cancelledQueues.has(row.id.replace('upload-', ''))) return;
         } else if (isResume && uploadId) {
             // Reuse the existing server-rendered row — don't create a duplicate
             row = document.getElementById(`upload-${uploadId}`);
@@ -794,6 +798,9 @@ const Uploader = (() => {
         // more accurate label is "Cancel queued resume".
         const preRow = document.getElementById(`upload-${uploadId}`);
         if (preRow) {
+            // Tag the row so cancelUpload can recognise this as a
+            // resume path and preserve server chunks on cancel.
+            preRow.setAttribute('data-source', 'resume');
             const cancelBtn = preRow.querySelector('.cancel-btn');
             if (cancelBtn) cancelBtn.setAttribute('title', 'Cancel queued resume (partial progress will be preserved)');
         }
@@ -833,25 +840,35 @@ const Uploader = (() => {
             activeUploads.delete(uploadId);
         } else {
             // Either it's a queued file drop (qid starts with 'queued-')
-            // or a queued resume waiting its turn in uploadQueue.
-            // Either way mark in cancelledQueues so the queued task
-            // notices and no-ops when it finally gets its turn.
+            // or a queued resume waiting its turn in uploadQueue. Mark in
+            // cancelledQueues AND tag the row directly so the queued task
+            // body can detect this cancel even after handleFiles mutates
+            // entry.qid from queued-N to the server UUID mid-loop.
             cancelledQueues.add(uploadId);
         }
+
+        // Decide whether to DELETE the server-side record, and BOTH:
+        //   1. Read data-source BEFORE removing the row from the DOM (the
+        //      prior order hazard: removeUploadRow detached <tr>, then the
+        //      lookup returned null, so isResume was forced to false and
+        //      legitimate resumes got wiped server-side).
+        //   2. Tag the row with data-cancelled so that even if init later
+        //      mutates entry.qid on a still-pending entry, handleFiles'
+        //      queued task body will skip it.
+        //
+        //   - data-source="resume" -> SKIP DELETE (preserve chunks)
+        //   - any other value      -> DELETE (full cancel/cleanup)
+        const tr = document.getElementById(`upload-${uploadId}`);
+        const isResume = !!tr && tr.getAttribute('data-source') === 'resume';
+        if (tr) tr.setAttribute('data-cancelled', 'true');
         removeUploadRow(uploadId);
 
-        // Decide whether the server should keep the partial chunks.
-        //
-        //   - Brand-new queued drops (qid starts with 'queued-') never
-        //     reached /upload/init server-side, so DELETE is harmless.
-        //     Fully cancel.
-        //   - Any non-`queued-` id is potentially a resumption's server
-        //     UUID: if we have an active state, defer to its fromResume;
-        //     if we don't (still queued, not yet started), treat it as a
-        //     resume too — partial chunks on the server must survive.
-        const isNewDrop = typeof uploadId === 'string' && uploadId.startsWith('queued-');
-        const isResume = !isNewDrop && (st ? st.fromResume : true);
-        if (isNewDrop || !isResume) {
+        if (isResume) {
+            showToast('Preserved',
+                'Resume stopped — partial upload kept on the server. ' +
+                'You can resume it from the incomplete uploads list later.',
+            );
+        } else {
             try {
                 await fetch(`/upload/cancel/${uploadId}`, {
                     method: 'DELETE',
@@ -859,11 +876,6 @@ const Uploader = (() => {
                 });
             } catch (_) { /* best effort */ }
             showToast('Cancelled', 'Upload has been cancelled and cleaned up.');
-        } else {
-            showToast('Preserved',
-                'Resume stopped — partial upload kept on the server. ' +
-                'You can resume it from the incomplete uploads list later.',
-            );
         }
     }
 
@@ -918,11 +930,88 @@ const Uploader = (() => {
         const entries = files.map(f => {
             const qid = 'queued-' + (++_queueId);
             const row = addUploadRow(qid, f.name, f.size);
+            // Tag the row so cancelUpload knows this came from a fresh
+            // drag-drop (vs a resume of existing server work) — the row
+            // is later promoted to data-source="resume" if /upload/init
+            // answers with conflict (file already exists server-side).
+            row.setAttribute('data-source', 'new');
             return { file: f, row, qid };
         });
         // All start as "Queued…" — the loop below transitions them to active
         for (const entry of entries) {
             setRowQueued(entry.qid);
+        }
+
+        // Eagerly register every queued file server-side so the record
+        // survives page reloads (server's /uploads/incomplete lists them
+        // again on refresh). Without this, queued new drops evaporate
+        // client-side on reload and the user loses their queue.
+        //
+        // Fingerprints run in parallel (CPU-bound SHA-256 across files).
+        // The actual /upload/init calls run sequentially so the server's
+        // record creation order matches the queue order on reload.
+        let fingerprints = [];
+        try {
+            fingerprints = await Promise.all(entries.map(e => computeFileFingerprint(e.file)));
+        } catch (err) {
+            console.error('Parallel fingerprinting failed; falling back.', err);
+            fingerprints = await Promise.all(entries.map(e => computeFileFingerprint(e.file).catch(() => null)));
+        }
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+            const fingerprint = fingerprints[i];
+            if (!fingerprint) {
+                showToast('Error',
+                    `Could not fingerprint "${entry.file.name}". The file will be ` +
+                    `queued locally and uploaded when reachable.`,
+                    'danger',
+                );
+                continue;
+            }
+            try {
+                const initResp = await fetch('/upload/init', {
+                    method: 'POST',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({
+                        filename: entry.file.name,
+                        total_size: entry.file.size,
+                        file_fingerprint: fingerprint,
+                    }),
+                });
+                if (!initResp.ok) {
+                    const e = await initResp.json().catch(() => ({}));
+                    throw new Error(e.error || `Init failed (HTTP ${initResp.status})`);
+                }
+                const init = await initResp.json();
+                const serverId = init.upload_id;
+                if (!serverId) {
+                    // Server returned 200 but no upload_id — treat the same
+                    // as a transport failure so we don't promote the row to
+                    // 'upload-undefined' and accidentally DELETE it later.
+                    throw new Error(`Init response missing upload_id for "${entry.file.name}"`);
+                }
+                // Promote the row's id and its cancel button to use the
+                // server UUID so /upload/cancel, /upload/bump and any
+                // future server call reference the real record.
+                entry.row.id = `upload-${serverId}`;
+                const cancelBtn = entry.row.querySelector('.cancel-btn');
+                if (cancelBtn) cancelBtn.setAttribute('data-upload-id', serverId);
+                entry.serverId = serverId;
+                entry.qid = serverId;
+                // Conflict = an incomplete upload with same filename+size
+                // already exists server-side; this row is effectively a
+                // resume path, so cancel should preserve chunks.
+                if (init.conflict) entry.row.setAttribute('data-source', 'resume');
+            } catch (err) {
+                console.error(`Eager init failed for ${entry.file.name}:`, err);
+                showToast('Error',
+                    `Could not register "${entry.file.name}" on the server. ` +
+                    `The file will be queued locally and uploaded when reachable.`,
+                    'danger',
+                );
+                // Leave the row with its queued-N id; on reload the file
+                // won't be in /uploads/incomplete (best-effort fallback).
+            }
         }
 
         // Chain onto the upload queue so this batch serialises against
@@ -950,14 +1039,27 @@ const Uploader = (() => {
             } catch (_) { /* server will reject individual uploads */ }
 
             // Process sequentially — each file transitions from queued to
-            // active when it's its turn.
+            // active when it's its turn. The row's data-source flag
+            // drives the isResume parameter so startUpload's state
+            // (fromResume) stays in sync with the row's intent.
+            //
+            // Cancellation check covers two paths:
+            //   - cancelledQueues Set — catches cancels that ran AFTER init
+            //     promoted entry.qid from queued-N to the server UUID.
+            //   - data-cancelled attribute — catches pre-init cancels where
+            //     cancelUpload fired BEFORE init mutated entry.qid, so
+            //     cancelledQueues contains 'queued-N' but entry.qid is now
+            //     '<server uuid>'. The attribute is tagged directly on the
+            //     row, which survives both DOM removal and qid rename.
             for (const entry of entries) {
-                if (cancelledQueues.has(entry.qid)) {
+                if (cancelledQueues.has(entry.qid) ||
+                    entry.row.getAttribute('data-cancelled') === 'true') {
                     cancelledQueues.delete(entry.qid);
                     continue;
                 }
                 setRowTransitioning(entry.qid);
-                await startUpload(entry.qid, entry.file, false, entry.row);
+                const isResume = entry.row.getAttribute('data-source') === 'resume';
+                await startUpload(entry.qid, entry.file, isResume, entry.row);
             }
         });
     }
