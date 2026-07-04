@@ -384,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <small class="text-muted status-cell">${u.progress_percent}%</small>
                     </td>
-                    <td><small class="text-muted">${formatDate(new Date(u.last_activity * 1000).toISOString())}</small></td>
+                    <td><small class="text-muted time-cell">${formatDate(new Date(u.last_activity * 1000).toISOString())}</small></td>
                     <td class="action-cell">
                         <button class="btn btn-sm btn-outline-primary resume-btn"
                                 data-upload-id="${u.upload_id}"

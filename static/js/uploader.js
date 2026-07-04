@@ -161,7 +161,8 @@ const Uploader = (() => {
         if (status) status.textContent = statusText || `${done}/${total} chunks (${pct}%)`;
         const state = activeUploads.get(uploadId);
         if (state) {
-            tr.querySelector('.time-cell').textContent = formatRelativeTime(state.startedAt);
+            const tc = tr.querySelector('.time-cell');
+            if (tc) tc.textContent = formatRelativeTime(state.startedAt);
         }
     }
 
