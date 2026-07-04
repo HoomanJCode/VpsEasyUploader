@@ -389,7 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button class="btn btn-sm btn-outline-primary resume-btn"
                                 data-upload-id="${u.upload_id}"
                                 data-filename="${escapeHtml(u.filename)}">
-                            <i class="bi bi-play-fill me-1"></i>Resume
+                            <i class="bi bi-play-fill"></i>
                         </button>
                         <button class="btn btn-sm btn-outline-danger cancel-btn"
                                 data-upload-id="${u.upload_id}" title="Cancel">
