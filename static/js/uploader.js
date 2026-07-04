@@ -516,6 +516,11 @@ const Uploader = (() => {
             pausedByUser: false,
             cancelled: false,
             startedAt: Date.now(),
+            // Marks this upload as a resumption of a server-tracked
+            // incomplete upload. cancelUpload skips the server DELETE
+            // when this is true so partial chunks survive even if the
+            // user cancels while we're already mid-init.
+            fromResume: !!isResume,
         };
         const rowId = row.id.replace('upload-', '');
         activeUploads.set(rowId, state);
@@ -790,7 +795,7 @@ const Uploader = (() => {
         const preRow = document.getElementById(`upload-${uploadId}`);
         if (preRow) {
             const cancelBtn = preRow.querySelector('.cancel-btn');
-            if (cancelBtn) cancelBtn.setAttribute('title', 'Cancel queued resume');
+            if (cancelBtn) cancelBtn.setAttribute('title', 'Cancel queued resume (partial progress will be preserved)');
         }
         return enqueueUpload(async () => {
             // Was the user (or a script) cancelled before we got our turn?
@@ -834,13 +839,32 @@ const Uploader = (() => {
             cancelledQueues.add(uploadId);
         }
         removeUploadRow(uploadId);
-        try {
-            await fetch(`/upload/cancel/${uploadId}`, {
-                method: 'DELETE',
-                headers: csrfHeaders(),
-            });
-        } catch (_) { /* best effort */ }
-        showToast('Cancelled', 'Upload has been cancelled and cleaned up.');
+
+        // Decide whether the server should keep the partial chunks.
+        //
+        //   - Brand-new queued drops (qid starts with 'queued-') never
+        //     reached /upload/init server-side, so DELETE is harmless.
+        //     Fully cancel.
+        //   - Any non-`queued-` id is potentially a resumption's server
+        //     UUID: if we have an active state, defer to its fromResume;
+        //     if we don't (still queued, not yet started), treat it as a
+        //     resume too — partial chunks on the server must survive.
+        const isNewDrop = typeof uploadId === 'string' && uploadId.startsWith('queued-');
+        const isResume = !isNewDrop && (st ? st.fromResume : true);
+        if (isNewDrop || !isResume) {
+            try {
+                await fetch(`/upload/cancel/${uploadId}`, {
+                    method: 'DELETE',
+                    headers: csrfHeaders(),
+                });
+            } catch (_) { /* best effort */ }
+            showToast('Cancelled', 'Upload has been cancelled and cleaned up.');
+        } else {
+            showToast('Preserved',
+                'Resume stopped — partial upload kept on the server. ' +
+                'You can resume it from the incomplete uploads list later.',
+            );
+        }
     }
 
     /* ------------------------------------------------------------------ */
