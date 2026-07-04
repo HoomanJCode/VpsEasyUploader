@@ -347,90 +347,106 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Refresh the incomplete uploads section.
+     * Refresh the incomplete uploads section (only on page load;
+     * active uploads are managed directly by uploader.js rows).
      */
     async function refreshIncompleteUploads() {
         try {
-            const resp = await fetch('/uploads/incomplete', {
-                headers: csrfHeaders(),
-            });
+            const resp = await fetch('/uploads/incomplete', { headers: csrfHeaders() });
             const data = await resp.json();
             const uploads = data.uploads || [];
-
             const section = document.getElementById('incomplete-section');
             const tbody = document.getElementById('incomplete-table-body');
 
             if (uploads.length === 0) {
-                section.classList.add('d-none');
+                // Don't hide if uploader has added rows
+                if (tbody.children.length === 0) section.classList.add('d-none');
                 return;
             }
 
             section.classList.remove('d-none');
-            tbody.innerHTML = uploads.map(u => `
-                <tr data-upload-id="${u.upload_id}">
+
+            // Only add rows for uploads NOT already managed by the uploader
+            uploads.forEach(u => {
+                if (document.getElementById(`upload-${u.upload_id}`)) return; // already managed
+                const tr = document.createElement('tr');
+                tr.id = `upload-${u.upload_id}`;
+                tr.setAttribute('data-upload-id', u.upload_id);
+                tr.innerHTML = `
                     <td class="text-truncate" style="max-width:300px;">${escapeHtml(u.filename)}</td>
                     <td>${Uploader.formatBytes(u.total_size)}</td>
                     <td>
-                        <div class="progress" style="height: 6px;">
+                        <div class="progress" style="height:6px;">
                             <div class="progress-bar" style="width:${u.progress_percent}%"></div>
                         </div>
-                        <small class="text-muted">${u.progress_percent}%</small>
+                        <small class="text-muted status-cell">${u.progress_percent}%</small>
                     </td>
                     <td><small class="text-muted">${formatDate(new Date(u.last_activity * 1000).toISOString())}</small></td>
-                    <td>
+                    <td class="action-cell">
                         <button class="btn btn-sm btn-outline-primary resume-btn"
                                 data-upload-id="${u.upload_id}"
                                 data-filename="${escapeHtml(u.filename)}">
                             <i class="bi bi-play-fill me-1"></i>Resume
                         </button>
-                    </td>
-                </tr>
-            `).join('');
-
-            // Bind resume buttons
-            tbody.querySelectorAll('.resume-btn').forEach(btn => {
-                btn.addEventListener('click', () => handleResume(btn));
+                    </td>`;
+                tbody.appendChild(tr);
             });
-
         } catch (err) {
             console.error('Failed to fetch incomplete uploads:', err);
         }
     }
 
     /**
-     * Handle the resume button click for incomplete uploads.
+     * Handle resume button clicks (delegated from the uploads tbody).
+     * For paused in-memory uploads: resumes without file picker.
+     * For server-side incomplete uploads: opens file picker + fingerprint verification.
      */
-    function handleResume(btn) {
-        const uploadId = btn.getAttribute('data-upload-id');
-        const filename = btn.getAttribute('data-filename');
+    function handleResume(uploadId, filename) {
+        // Try in-memory paused resume first (no file picker needed)
+        if (Uploader.resumePaused(uploadId)) {
+            showToast('Resumed', `Upload of "${filename}" resumed.`);
+            return;
+        }
 
-        // Create a hidden file input and prompt the user to re-select the file
+        // Server-side incomplete upload — needs file re-selection + fingerprint
         const input = document.createElement('input');
         input.type = 'file';
         input.style.display = 'none';
-
-        // Pre-fill with filename hint
         input.addEventListener('change', async () => {
             if (input.files && input.files.length > 0) {
                 const file = input.files[0];
                 showToast('Resuming', `Resuming upload for "${file.name}"...`);
-                await Uploader.resumeUpload(uploadId, file);
-
-                // Remove the incomplete upload row
-                const row = document.querySelector(`tr[data-upload-id="${uploadId}"]`);
-                if (row) row.remove();
-
-                // Refresh lists
-                setTimeout(() => {
-                    refreshIncompleteUploads();
-                    refreshFiles();
-                }, 2000);
+                const ok = await Uploader.resumeFromUI(uploadId, file);
+                if (ok) {
+                    // Remove the server-rendered row (uploader adds its own)
+                    const row = document.querySelector(`tr[data-upload-id="${uploadId}"]`);
+                    if (row) row.remove();
+                    setTimeout(() => refreshFiles(), 2000);
+                }
+                // If resumeFromUI returns false, fingerprint verification
+                // failed — error toast already shown, keep the row.
             }
         });
-
         document.body.appendChild(input);
         input.click();
         document.body.removeChild(input);
+    }
+
+    /**
+     * Bind event delegation on the uploads table for all action buttons.
+     */
+    function bindUploadsTableActions() {
+        const tbody = document.getElementById('incomplete-table-body');
+        if (!tbody) return;
+        tbody.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            const uploadId = btn.getAttribute('data-upload-id');
+            const filename = btn.getAttribute('data-filename');
+            if (uploadId && filename && btn.classList.contains('resume-btn')) {
+                handleResume(uploadId, filename);
+            }
+        });
     }
 
     /**
@@ -453,6 +469,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function init() {
         initBootstrap();
         bindMainActions();
+        bindUploadsTableActions();
         updateDiskInfo();
         refreshFiles();
         refreshIncompleteUploads();
@@ -463,7 +480,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Expose for uploader callback
     window.refreshFiles = refreshFiles;
-    window.refreshIncompleteUploads = refreshIncompleteUploads;
+    window.refreshDiskInfo = updateDiskInfo;
 
     // Start the dashboard
     init();
