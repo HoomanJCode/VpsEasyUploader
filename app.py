@@ -142,7 +142,7 @@ def register_page():
             logger.info("Admin password set and logged in")
             return redirect(url_for("index"))
 
-    return render_template("register.html", error=error, csrf_token=get_csrf_token())
+    return render_template("register.html", error=error, csrf_token=get_csrf_token(), asset_version=_ASSET_VERSION)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -173,7 +173,7 @@ def login_page():
         else:
             error = "Invalid password."
 
-    return render_template("login.html", error=error, csrf_token=get_csrf_token())
+    return render_template("login.html", error=error, csrf_token=get_csrf_token(), asset_version=_ASSET_VERSION)
 
 
 @app.route("/logout")
