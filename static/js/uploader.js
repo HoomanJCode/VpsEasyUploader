@@ -70,6 +70,14 @@ const Uploader = (() => {
         return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
     }
 
+    function formatSpeed(bytesPerSec) {
+        if (!bytesPerSec || bytesPerSec <= 0 || !isFinite(bytesPerSec)) return '\u2014';
+        if (bytesPerSec < 1024) return formatBytes(Math.round(bytesPerSec)) + '/s';
+        const i = Math.floor(Math.log(bytesPerSec) / Math.log(1024));
+        const units = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+        return (bytesPerSec / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+    }
+
     function showToast(title, message, variant = 'primary') {
         const t = document.getElementById('toast');
         document.getElementById('toast-title').textContent = title;
@@ -117,6 +125,7 @@ const Uploader = (() => {
                 <div class="chunks-bar"><!-- segments added after init/status --></div>
                 <small class="text-muted status-cell">Initializing…</small>
             </td>
+            <td class="text-nowrap text-end speed-cell">\u2014</td>
             <td><small class="text-muted time-cell">now</small></td>
             <td class="action-cell">
                 <button class="btn btn-sm btn-outline-secondary pause-btn"
@@ -242,10 +251,33 @@ const Uploader = (() => {
         }
     }
 
-    function escapeHtml(str) {
-        const d = document.createElement('div');
-        d.textContent = str;
-        return d.innerHTML;
+    /**
+     * Update the row's speed cell.
+     * @param {string} uploadId
+     * @param {number|null} bytesPerSec  calculated speed, or null to clear
+     */
+    function updateRowSpeed(uploadId, bytesPerSec) {
+        const tr = document.getElementById(`upload-${uploadId}`);
+        if (!tr) return;
+        const speedEl = tr.querySelector('.speed-cell');
+        if (speedEl) speedEl.textContent = formatSpeed(bytesPerSec);
+    }
+
+    /**
+     * Calculate the current upload speed in bytes per second.
+     * Uses only chunks uploaded SINCE the session started (excludes
+     * pre-existing chunks on resume to avoid an inflated spike).
+     * @param {Object} state  the active upload state object
+     * @param {number} chunkSize  bytes per chunk
+     * @returns {number|null}
+     */
+    function calcSpeed(state, chunkSize) {
+        if (!state || !state.startedAt || !state.meta) return null;
+        const elapsed = (Date.now() - state.startedAt) / 1000;
+        if (elapsed < 0.5) return null; // Not enough data yet
+        const freshChunks = Math.max(0, (state.progress || 0) - (state._resumeOffset || 0));
+        const bytesUploaded = freshChunks * (chunkSize || state.meta.chunk_size || 0);
+        return Math.round(bytesUploaded / elapsed);
     }
 
     /**
@@ -292,6 +324,7 @@ const Uploader = (() => {
         if (bar) bar.classList.add('paused-active');
         const sc = tr.querySelector('.status-cell');
         if (sc) sc.textContent = '⏸ Paused';
+        updateRowSpeed(uploadId, null);
         const action = tr.querySelector('.action-cell');
         if (action) {
             action.innerHTML = `<button class="btn btn-sm btn-outline-primary resume-btn"
@@ -311,6 +344,7 @@ const Uploader = (() => {
         const sc = tr.querySelector('.status-cell');
         if (sc) sc.innerHTML =
             `<i class="bi bi-exclamation-triangle text-danger"></i> ${msg}`;
+        updateRowSpeed(uploadId, null);
         const ac = tr.querySelector('.action-cell');
         if (ac) ac.innerHTML = '';
     }
@@ -327,9 +361,10 @@ const Uploader = (() => {
         tr.setAttribute('data-queued', 'true');
         const sc = tr.querySelector('.status-cell');
         if (sc) {
-            sc.textContent = '⏳ Queued…';
+            sc.textContent = '\u23F3 Queued\u2026';
             sc.classList.add('fst-italic');
         }
+        updateRowSpeed(uploadId, null);
         const action = tr.querySelector('.action-cell');
         if (action) {
             action.innerHTML = `<button class="btn btn-sm btn-outline-danger cancel-btn"
@@ -350,9 +385,10 @@ const Uploader = (() => {
         tr.removeAttribute('data-queued');
         const sc = tr.querySelector('.status-cell');
         if (sc) {
-            sc.textContent = 'Initializing…';
+            sc.textContent = 'Initializing\u2026';
             sc.classList.remove('fst-italic');
         }
+        updateRowSpeed(uploadId, null);
         const tc = tr.querySelector('.time-cell');
         if (tc) tc.textContent = 'now';
         const action = tr.querySelector('.action-cell');
@@ -599,6 +635,11 @@ const Uploader = (() => {
             const received = new Set(statusData.received_chunks || []);
             const totalChunks = statusData.total_chunks;
 
+            // Track how many chunks were already on the server before this
+            // session started; used by calcSpeed to avoid counting them
+            // against the session elapsed time (inflated speed spike on resume).
+            state._resumeOffset = state._resumeOffset || received.size;
+
             // Build the segmented chunks-bar now that we know the total and
             // which chunks already exist on the server (resume case).
             renderChunksBar(finalId, totalChunks, [...received]);
@@ -735,6 +776,7 @@ const Uploader = (() => {
                 received.add(i);
                 setChunkState(uploadId, i, 'done');
                 updateRowProgress(uploadId, done, totalChunks, null, initialLabel);
+                updateRowSpeed(uploadId, calcSpeed(state, cs));
                 // If user paused during this chunk, restore paused UI and bail
                 if (state.paused) {
                     setRowPaused(uploadId, meta.filename);

@@ -122,6 +122,14 @@
     z-index: 2;
 }
 
+/* ===== Upload Speed Cell ===== */
+.speed-cell {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.85rem;
+    color: #495057;
+    min-width: 70px;
+}
+
 /* ===== Layout constraints ===== */
 main.container {
     max-width: 1100px;
