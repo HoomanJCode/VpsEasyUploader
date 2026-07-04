@@ -304,9 +304,19 @@ const Uploader = (() => {
                 activeUploads.delete(uploadId || 'temp');
                 activeUploads.set(finalId, state);
                 row.id = `upload-${finalId}`;
-                // Re-wire pause button with correct id
-                const btn = row.querySelector('.pause-btn');
-                if (btn) btn.setAttribute('data-upload-id', finalId);
+
+                // Update data-upload-id on both buttons for event delegation
+                // and re-bind direct listeners (the old closures captured 'temp')
+                const rewireBtn = (selector, handler) => {
+                    const btn = row.querySelector(selector);
+                    if (!btn) return;
+                    btn.setAttribute('data-upload-id', finalId);
+                    const clone = btn.cloneNode(true);
+                    btn.replaceWith(clone);
+                    clone.addEventListener('click', handler);
+                };
+                rewireBtn('.pause-btn', () => pauseUpload(finalId));
+                rewireBtn('.cancel-btn', () => cancelUpload(finalId));
             }
 
             // Step 3 — get upload status (which chunks already exist)
