@@ -512,6 +512,10 @@ const Uploader = (() => {
             }
             done++;
             state.progress = done;
+            // Keep meta in sync so pause+resume starts from the correct count
+            if (!meta.received_chunks) meta.received_chunks = [];
+            meta.received_chunks.push(i);
+            received.add(i);
             updateRowProgress(uploadId, done, totalChunks, null, 'Uploading…');
             // If user paused during this chunk, restore paused UI and bail
             if (state.paused) {
