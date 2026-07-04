@@ -402,17 +402,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Handle resume button clicks (delegated from the uploads tbody).
-     * For paused in-memory uploads: resumes without file picker.
-     * For server-side incomplete uploads: opens file picker + fingerprint verification.
+     * Tier 1: in-memory paused upload — resume directly, no picker.
+     * Tier 2: server check — verify upload still exists before asking.
+     * Tier 3: file picker — user re-selects the file with fingerprint verification.
      */
-    function handleResume(uploadId, filename) {
-        // Try in-memory paused resume first (no file picker needed)
+    async function handleResume(uploadId, filename) {
+        // Tier 1 — in-memory paused upload (no file picker)
         if (Uploader.resumePaused(uploadId)) {
             showToast('Resumed', `Upload of "${filename}" resumed.`);
             return;
         }
 
-        // Server-side incomplete upload — needs file re-selection + fingerprint
+        // Tier 2 — verify the incomplete upload still exists on the server
+        try {
+            const statusResp = await fetch(`/upload/status/${uploadId}`, { headers: csrfHeaders() });
+            if (!statusResp.ok) {
+                // Upload expired or was cleaned up
+                showToast('Not Found', 'This incomplete upload no longer exists on the server. It may have expired.', 'warning');
+                // Remove the stale row
+                const row = document.querySelector(`tr[data-upload-id="${uploadId}"]`);
+                if (row) row.remove();
+                // Hide section if no rows remain
+                const tbody = document.getElementById('incomplete-table-body');
+                if (tbody && tbody.children.length === 0) {
+                    document.getElementById('incomplete-section').classList.add('d-none');
+                }
+                return;
+            }
+            const status = await statusResp.json();
+            const expectedSize = Uploader.formatBytes(status.total_size || 0);
+            showToast('Select File', `Please re-select the file "${filename}" (${expectedSize}) to resume.`, 'primary');
+        } catch (_) {
+            showToast('Error', 'Could not verify upload status. Please try again.', 'danger');
+            return;
+        }
+
+        // Tier 3 — file picker for re-selection
         const input = document.createElement('input');
         input.type = 'file';
         input.style.display = 'none';
@@ -422,13 +447,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 showToast('Resuming', `Resuming upload for "${file.name}"...`);
                 const ok = await Uploader.resumeFromUI(uploadId, file);
                 if (ok) {
-                    // Remove the server-rendered row (uploader adds its own)
                     const row = document.querySelector(`tr[data-upload-id="${uploadId}"]`);
                     if (row) row.remove();
                     setTimeout(() => refreshFiles(), 2000);
                 }
-                // If resumeFromUI returns false, fingerprint verification
-                // failed — error toast already shown, keep the row.
             }
         });
         document.body.appendChild(input);
