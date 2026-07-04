@@ -178,15 +178,17 @@ const Uploader = (() => {
             bar.classList.remove('progress-bar-animated');
             bar.classList.replace('progress-bar-striped', 'bg-warning');
         }
-        tr.querySelector('.status-cell').textContent = '⏸ Paused';
+        const sc = tr.querySelector('.status-cell');
+        if (sc) sc.textContent = '⏸ Paused';
         const action = tr.querySelector('.action-cell');
-        action.innerHTML = `<button class="btn btn-sm btn-outline-primary resume-btn"
-            data-upload-id="${uploadId}" data-filename="${escapeHtml(filename)}" title="Resume">
-            <i class="bi bi-play-fill"></i></button>
-            <button class="btn btn-sm btn-outline-danger cancel-btn"
-            data-upload-id="${uploadId}" title="Cancel">
-            <i class="bi bi-x-lg"></i></button>`;
-        // Wire up cancel button on paused rows (dashboard delegation handles the rest)
+        if (action) {
+            action.innerHTML = `<button class="btn btn-sm btn-outline-primary resume-btn"
+                data-upload-id="${uploadId}" data-filename="${escapeHtml(filename)}" title="Resume">
+                <i class="bi bi-play-fill"></i></button>
+                <button class="btn btn-sm btn-outline-danger cancel-btn"
+                data-upload-id="${uploadId}" title="Cancel">
+                <i class="bi bi-x-lg"></i></button>`;
+        }
     }
 
     function setRowError(uploadId, msg) {
@@ -490,6 +492,11 @@ const Uploader = (() => {
             state.progress = done;
             updateRowProgress(uploadId, done, totalChunks,
                 `Uploading… ${done}/${totalChunks} chunks`);
+            // If user paused during this chunk, restore paused UI and bail
+            if (state.paused) {
+                setRowPaused(uploadId, meta.filename);
+                return;
+            }
         }
 
         // All chunks done
