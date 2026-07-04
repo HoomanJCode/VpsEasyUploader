@@ -83,6 +83,15 @@ from utils.chunker import (
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
 
+# ---- Cache-busting version for static assets ----
+_STATIC_DIR = Path(__file__).parent / "static"
+_ASSET_VERSION = 0
+if _STATIC_DIR.exists():
+    for _p in _STATIC_DIR.rglob("*"):
+        if _p.is_file():
+            _ASSET_VERSION = max(_ASSET_VERSION, int(_p.stat().st_mtime))
+logger.info("Asset version: %s", _ASSET_VERSION)
+
 
 # ---- Periodic Cleanup Thread ----
 def cleanup_loop():
@@ -184,6 +193,7 @@ def index():
         "index.html",
         disk=disk,
         csrf_token=get_csrf_token(),
+        asset_version=_ASSET_VERSION,
     )
 
 
