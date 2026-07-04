@@ -870,36 +870,20 @@ const Uploader = (() => {
         });
     }
 
-    // Promise that serialises all uploads — each task chains onto the
-    // previous via .then(), so separate drop/browse/resume events run
-    // one at a time. The inner .catch keeps the chain alive even if a
-    // task's caller forgot to swallow its own errors — otherwise a
-    // rejection becomes the new uploadQueue and every subsequent
-    // batch would be silently skipped.
-    let uploadQueue = Promise.resolve();
-
-    /**
-     * Append `task` to the upload queue and return a promise that
-     * resolves ONLY when this specific task finishes.
-     *
-     * Bug fix: `resumeFromUI` and `resumeUploadFromPause` previously
-     * ran `startUpload` / `uploadMissingChunks` directly, letting them
-     * execute in parallel with any in-flight upload. Every entry point
-     * (new drop, paused-resume, incomplete-resume) now goes through
-     * this helper so we guarantee only one active upload at a time.
-     *
-     * @param {() => Promise<any>|any} task
-     * @returns {Promise<any>} resolves/rejects when the task does
-     */
-    function enqueueUpload(task) {
-        const myTask = uploadQueue.then(async () => {
-            await task();
-        });
-        uploadQueue = myTask.catch(err => {
-            console.error('Queue chain error:', err);
-        });
-        return myTask;
-    }
+    // Promise that serialises all uploads — routed through the shared
+    // UploadQueue module (static/js/queue.js) so the helper can be
+    // exercised directly from vitest tests without simulating the
+    // whole Uploader IIFE. The returned function preserves the
+    // "one upload at a time" guarantee across handleFiles,
+    // resumeFromUI, and resumeUploadFromPause.
+    //
+    // If queue.js failed to load (network error, parse error) we
+    // fall back to a passthrough queue so we don't crash the page
+    // entirely — uploads will be allowed to run in parallel in that
+    // degraded state, but at least the app stays usable.
+    const enqueueUpload = window.UploadQueue
+        ? window.UploadQueue.createUploadQueue()
+        : (task => Promise.resolve().then(task));
 
     async function handleFiles(fileList) {
         if (!fileList || fileList.length === 0) return;

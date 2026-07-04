@@ -1,0 +1,13 @@
+{
+  "name": "vpseasyuploader-js-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Frontend (vanilla JS) tests for VpsEasyUploader.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.4"
+  }
+}
