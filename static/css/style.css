@@ -41,14 +41,17 @@
     font-size: 0.875rem;
 }
 
-/* ===== Segmented chunk progress bar ===== */
+/* ===== Segmented chunk progress bar =====
+   Monochromatic blue palette derived from the app's primary #0d6efd
+   so the bar feels native to the rest of the dashboard, instead of
+   the default Bootstrap traffic-light green/yellow/red. */
 .chunks-bar {
     display: flex;
     gap: 1px;
-    height: 32px;
-    border-radius: 0.375rem;
+    height: 24px;
+    border-radius: 0.25rem;
     overflow: hidden;
-    background-color: var(--bs-secondary-bg, #e9ecef);
+    background-color: #e9ecef;
     position: relative;
 }
 
@@ -61,24 +64,27 @@
 }
 
 .chunk-segment.chunk-done {
-    background-color: var(--bs-success, #198754);
+    /* Soft, desaturated tint of the brand primary — finished, but quietly. */
+    background-color: #9ec5fe;
 }
 
 .chunk-segment.chunk-uploading {
-    background-color: var(--bs-primary, #0d6efd);
+    /* Bright brand primary so the eye locks onto what's actively working. */
+    background-color: #0d6efd;
     /* Animated stripes give an active "in flight" sense */
     background-image: linear-gradient(
         45deg,
-        rgba(255,255,255,.15) 25%, transparent 25%,
-        transparent 50%, rgba(255,255,255,.15) 50%,
-        rgba(255,255,255,.15) 75%, transparent 75%, transparent
+        rgba(255,255,255,.18) 25%, transparent 25%,
+        transparent 50%, rgba(255,255,255,.18) 50%,
+        rgba(255,255,255,.18) 75%, transparent 75%, transparent
     );
     background-size: 1rem 1rem;
     animation: chunk-progress-bar-stripes 1s linear infinite;
 }
 
 .chunk-segment.chunk-error {
-    background-color: var(--bs-danger, #dc3545);
+    /* Muted pastel red instead of Bootstrap's loud #dc3545. */
+    background-color: #ea868f;
 }
 
 @keyframes chunk-progress-bar-stripes {
@@ -86,16 +92,18 @@
     to   { background-position: 1rem 0; }
 }
 
-/* When the paused state is applied to the bar wrapper, dim the whole bar
-   (text remains visible) so the user immediately sees the upload is halted. */
-.chunks-bar.paused-active {
-    filter: saturate(0.6) brightness(0.95);
-    box-shadow: inset 0 0 0 2px rgba(255, 193, 7, 0.6);
+/* Paused state: dim the segment fills with grayscale + opacity so it
+   reads as "halted" without shouting a yellow warning border. Scoped
+   to .chunk-segment (not the wrapper) so the overlay chunk-count text
+   keeps full opacity and stays crisp on top of the muted fills. */
+.chunks-bar.paused-active .chunk-segment {
+    filter: grayscale(1) opacity(0.7);
 }
 
-/* When every segment landed in the error state, tint the bar red. */
+/* Error state: tint the bar with a soft red inset shadow that matches
+   the muted segment color. */
 .chunks-bar.all-error {
-    box-shadow: inset 0 0 0 2px rgba(220, 53, 69, 0.7);
+    box-shadow: inset 0 0 0 2px rgba(234, 134, 143, 0.7);
 }
 
 .chunks-bar-text {
