@@ -48,7 +48,7 @@ if [ -f ".env" ]; then
 fi
 
 # ── Check Python 3 ──────────────────────────────────────────────────────────
-echo -e "${CYAN}[1/6] Checking Python 3...${NC}"
+echo -e "${CYAN}[1/7] Checking Python 3...${NC}"
 if ! command -v python3 &>/dev/null; then
     echo -e "${RED}[✗] Python 3 is not installed. Please install Python 3.8+ and try again.${NC}"
     echo "    Ubuntu/Debian: sudo apt install python3 python3-pip python3-venv"
@@ -68,7 +68,7 @@ echo -e "${GREEN}[✓] pip available${NC}"
 
 # ── Virtual environment ─────────────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}[2/6] Setting up Python virtual environment...${NC}"
+echo -e "${CYAN}[2/7] Setting up Python virtual environment...${NC}"
 
 if [ ! -d "venv" ]; then
     python3 -m venv venv
@@ -87,7 +87,7 @@ echo -e "${GREEN}[✓] Dependencies installed${NC}"
 
 # ── Interactive configuration ───────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}[3/6] Configuring server settings...${NC}"
+echo -e "${CYAN}[3/7] Configuring server settings...${NC}"
 
 # IP address
 echo ""
@@ -160,7 +160,7 @@ LOG_LEVEL=${LOG_LEVEL:-WARNING}
 
 # ── Generate .env ───────────────────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}[4/6] Generating .env file...${NC}"
+echo -e "${CYAN}[4/7] Generating .env file...${NC}"
 
 # Generate a random secret key
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -198,7 +198,7 @@ echo -e "${GREEN}[✓] Admin password stored in auth.json${NC}"
 
 # ── Systemd service (optional) ──────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}[5/6] Systemd service configuration...${NC}"
+echo -e "${CYAN}[5/7] Systemd service configuration...${NC}"
 read -rp "Install systemd service so the server starts on boot? [y/N] " INSTALL_SERVICE
 
 if [[ "$INSTALL_SERVICE" =~ ^[Yy]$ ]]; then
@@ -240,9 +240,25 @@ else
     echo -e "${BLUE}[i] Skipping systemd service installation.${NC}"
 fi
 
+# ── UFW firewall configuration (if available) ───────────────────────────────
+echo -e "${CYAN}[6/7] UFW firewall configuration...${NC}"
+if command -v ufw &>/dev/null && sudo -n true 2>/dev/null; then
+    echo -e "${BLUE}[i] UFW firewall detected.${NC}"
+    echo -e "${BLUE}[i] Adding rule to allow TCP on port $SERVER_PORT...${NC}"
+    sudo ufw allow "$SERVER_PORT/tcp" 2>/dev/null && \
+        echo -e "${GREEN}[✓] UFW rule added for port $SERVER_PORT/tcp${NC}" || \
+        echo -e "${YELLOW}[!] Could not add UFW rule (maybe not running as root).${NC}"
+    echo ""
+elif command -v ufw &>/dev/null; then
+    echo -e "${YELLOW}[!] UFW is installed but needs sudo to configure.${NC}"
+    echo -e "${YELLOW}    Run the following manually after setup:${NC}"
+    echo -e "    ${CYAN}sudo ufw allow $SERVER_PORT/tcp${NC}"
+    echo ""
+fi
+
 # ── Git initialization ──────────────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}[6/6] Initializing git repository...${NC}"
+echo -e "${CYAN}[7/7] Initializing git repository...${NC}"
 
 if [ ! -d ".git" ]; then
     git init
