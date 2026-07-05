@@ -87,3 +87,6 @@ node_modules/
 .cache/
 .AppleDouble/
 .LSOverride
+
+# Windows null-device redirects (created as real files on Linux)
+nul
