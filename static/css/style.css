@@ -149,12 +149,7 @@
 
 /* ===== Progress Bar ===== */
 .uppy-DashboardItem-progress {
-    background: #e9ecef !important;
-    border-radius: 1rem !important;
-    height: 12px !important;
-    overflow: hidden !important;
-    box-shadow: inset 0 1px 3px rgba(0,0,0,0.08) !important;
-    /* Subtle segment dividers in the background track */
+    background-color: #e9ecef !important;
     background-image:
         repeating-linear-gradient(
             90deg,
@@ -163,25 +158,39 @@
             rgba(0,0,0,0.06) calc(10% - 1px),
             rgba(0,0,0,0.06) 10%
         ) !important;
+    border-radius: 1rem !important;
+    height: 12px !important;
+    overflow: hidden !important;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.08) !important;
 }
 
 .uppy-DashboardItem-progressIndicator {
     border-radius: 1rem !important;
     transition: width 0.3s ease !important;
-    position: relative !important;
-    /* Chunk-segmented fill: alternating blue shades + thin dividers */
+    /* Base shimmer gradient + chunk-segment dividers layered on top.
+       Pseudo-element draws the static dividers so the animation
+       only affects the fill, not the segment boundaries. */
+    background: linear-gradient(90deg, #0d6efd, #3d8bfd, #0d6efd) !important;
+    background-size: 200% 100% !important;
+    animation: progressShimmer 2s linear infinite !important;
+    box-shadow: 0 0 6px rgba(13, 110, 253, 0.3) !important;
+}
+
+/* Static chunk-segment dividers drawn over the animated fill */
+.uppy-DashboardItem-progressIndicator::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 1rem;
     background:
         repeating-linear-gradient(
             90deg,
-            rgba(13,110,253,0.75) 0%,
-            rgba(13,110,253,0.75) calc(10% - 1px),
+            transparent 0%,
+            transparent calc(10% - 1px),
             rgba(255,255,255,0.15) calc(10% - 1px),
             rgba(255,255,255,0.15) 10%
-        ),
-        linear-gradient(90deg, #0d6efd, #3d8bfd) !important;
-    background-size: 100% 100% !important;
-    animation: progressShimmer 2s linear infinite !important;
-    box-shadow: 0 0 6px rgba(13, 110, 253, 0.3) !important;
+        );
+    pointer-events: none;
 }
 
 @keyframes progressShimmer {
@@ -555,7 +564,7 @@ tr[data-previewable="true"]:hover {
 
 /* ── Progress Bar ── */
 [data-bs-theme="dark"] .uppy-DashboardItem-progress {
-    background: #1a1a2e !important;
+    background-color: #1a1a2e !important;
     background-image:
         repeating-linear-gradient(
             90deg,
@@ -568,16 +577,20 @@ tr[data-previewable="true"]:hover {
 }
 
 [data-bs-theme="dark"] .uppy-DashboardItem-progressIndicator {
+    background: linear-gradient(90deg, #3d8bfd, #5b9cfd, #3d8bfd) !important;
+    background-size: 200% 100% !important;
+    box-shadow: 0 0 8px rgba(61, 139, 253, 0.3) !important;
+}
+
+[data-bs-theme="dark"] .uppy-DashboardItem-progressIndicator::after {
     background:
         repeating-linear-gradient(
             90deg,
-            rgba(61,139,253,0.75) 0%,
-            rgba(61,139,253,0.75) calc(10% - 1px),
+            transparent 0%,
+            transparent calc(10% - 1px),
             rgba(255,255,255,0.1) calc(10% - 1px),
             rgba(255,255,255,0.1) 10%
-        ),
-        linear-gradient(90deg, #3d8bfd, #5b9cfd) !important;
-    box-shadow: 0 0 8px rgba(61, 139, 253, 0.3) !important;
+        );
 }
 
 /* ── Action Buttons ── */
