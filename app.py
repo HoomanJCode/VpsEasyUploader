@@ -188,10 +188,12 @@ def tus_hook():
     if not original_filename or not isinstance(size, int) or size <= 0:
         return jsonify({"error": "Bad hook payload"}), 400
 
-    # Determine source path from tusd's storage
+    # Determine source path from tusd's storage.
+    # Non-post-finish events (e.g. pre-create) have no file to move —
+    # just acknowledge success so tusd doesn't reject the upload.
     src_path_str = upload.get("Storage", {}).get("Path", "")
     if not src_path_str:
-        return jsonify({"error": "No storage path in hook payload"}), 400
+        return jsonify({"success": True})
 
     src = Path(src_path_str)
     if not src.exists():
