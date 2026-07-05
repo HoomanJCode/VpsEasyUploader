@@ -10,6 +10,7 @@ Or via run.sh which starts Waitress + tusd for production.
 
 import logging
 import os
+import re
 import secrets
 import sys
 from pathlib import Path
@@ -121,7 +122,6 @@ def tus_proxy(path):
             # Build response headers, skipping hop-by-hop.
             # Rewrite the Location header so tus-js-client keeps using
             # the proxy (/tus/<id>) instead of hitting 127.0.0.1:1080 directly.
-            import re
             response_headers = {}
             for key, value in resp.getheaders():
                 if key.lower() in skip_headers:
@@ -137,15 +137,16 @@ def tus_proxy(path):
                 response_headers[key] = value
             return resp.read(), resp.status, response_headers
     except urllib.error.HTTPError as e:
-        response_headers = dict(e.headers.items())
-        # Also rewrite Location on error responses (e.g. 409 Conflict)
-        import re
-        if "Location" in response_headers:
-            response_headers["Location"] = re.sub(
-                r"(https?://[^/]+)?/files/",
-                "/tus/",
-                response_headers["Location"],
-            )
+        # Build response headers case-insensitively, rewriting Location
+        response_headers = {}
+        for key, value in e.headers.items():
+            if key.lower() == "location":
+                value = re.sub(
+                    r"(https?://[^/]+)?/files/",
+                    "/tus/",
+                    value,
+                )
+            response_headers[key] = value
         return e.read(), e.code, response_headers
     except Exception as e:
         logger.warning("TUS proxy error: %s", e)
