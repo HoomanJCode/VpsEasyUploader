@@ -40,7 +40,6 @@
         uppy.use(Tus, {
             endpoint: tusEndpoint,
             chunkSize: 20 * 1024 * 1024,
-            resume: true,
             retryDelays: [0, 1000, 3000, 5000],
             withCredentials: true,
             onBeforeRequest: function (req) {
