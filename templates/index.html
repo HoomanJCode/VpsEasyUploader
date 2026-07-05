@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-bs-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -22,6 +22,9 @@
                 <span class="text-white-50 me-3 d-none d-md-inline" id="disk-info">
                     <i class="bi bi-hdd me-1"></i> Loading...
                 </span>
+                <button class="btn btn-outline-light btn-sm me-2" id="theme-toggle" title="Toggle dark mode">
+                    <i class="bi bi-moon-fill" id="theme-icon"></i>
+                </button>
                 <a href="/logout" class="btn btn-outline-light btn-sm" title="Sign out">
                     <i class="bi bi-box-arrow-right"></i>
                     <span class="d-none d-sm-inline ms-1">Logout</span>
@@ -164,6 +167,45 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://releases.transloadit.com/uppy/v3.27.3/uppy.min.js"></script>
+    <script>
+    // ── Dark mode toggle ────────────────────────────────────────────
+    (function () {
+        var html = document.documentElement;
+        var toggle = document.getElementById('theme-toggle');
+        var icon = document.getElementById('theme-icon');
+        var STORAGE_KEY = 'vps-theme';
+
+        function getSystemTheme() {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+
+        function applyTheme(theme) {
+            html.setAttribute('data-bs-theme', theme);
+            if (icon) {
+                icon.className = theme === 'dark' ? 'bi bi-sun-fill' : 'bi bi-moon-fill';
+            }
+            try { localStorage.setItem(STORAGE_KEY, theme); } catch (_) {}
+        }
+
+        // Restore saved preference, or default to system
+        var saved = null;
+        try { saved = localStorage.getItem(STORAGE_KEY); } catch (_) {}
+        var theme = saved || getSystemTheme();
+        applyTheme(theme);
+
+        if (toggle) {
+            toggle.addEventListener('click', function () {
+                var current = html.getAttribute('data-bs-theme');
+                applyTheme(current === 'dark' ? 'light' : 'dark');
+            });
+        }
+
+        // Listen for system theme changes (only when user hasn't set a preference)
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function () {
+            try { if (!localStorage.getItem(STORAGE_KEY)) applyTheme(getSystemTheme()); } catch (_) {}
+        });
+    })();
+    </script>
     <script src="/static/js/uppy-init.js?v={{ asset_version }}"></script>
     <script src="/static/js/dashboard.js?v={{ asset_version }}"></script>
 </body>
