@@ -267,13 +267,17 @@ const Uploader = (() => {
      * Calculate the current upload speed in bytes per second.
      * Uses only chunks uploaded SINCE the session started (excludes
      * pre-existing chunks on resume to avoid an inflated spike).
+     * Prefers _chunkStartAt (set when data first flows) over startedAt
+     * (set before init overhead) for accurate throughput.
      * @param {Object} state  the active upload state object
      * @param {number} chunkSize  bytes per chunk
      * @returns {number|null}
      */
     function calcSpeed(state, chunkSize) {
-        if (!state || !state.startedAt || !state.meta) return null;
-        const elapsed = (Date.now() - state.startedAt) / 1000;
+        if (!state || !state.meta) return null;
+        const t0 = state._chunkStartAt || state.startedAt;
+        if (!t0) return null;
+        const elapsed = (Date.now() - t0) / 1000;
         if (elapsed < 0.5) return null; // Not enough data yet
         const freshChunks = Math.max(0, (state.progress || 0) - (state._resumeOffset || 0));
         const bytesUploaded = freshChunks * (chunkSize || state.meta.chunk_size || 0);
@@ -742,6 +746,10 @@ const Uploader = (() => {
             let done = received.size;
             const initialLabel = done > 0 ? 'Resuming…' : 'Uploading…';
             updateRowProgress(uploadId, done, totalChunks, null, initialLabel);
+
+            // Timestamp when chunks actually start flowing — used by
+            // calcSpeed instead of startedAt (which includes init overhead).
+            state._chunkStartAt = Date.now();
 
             let cursor = 0;
             let hasError = false;
