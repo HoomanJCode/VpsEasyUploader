@@ -47,8 +47,18 @@
         });
 
         uppy.on('complete', function () {
-            if (typeof refreshFiles === 'function') setTimeout(refreshFiles, 800);
-            if (typeof refreshDiskInfo === 'function') refreshDiskInfo();
+            // The TUS webhook moves the file from .tusd/ to uploads/
+            // after tusd confirms the upload.  Poll the file list a
+            // few times so the dashboard picks it up reliably.
+            var attempts = 0;
+            var maxAttempts = 4;
+            function tryRefresh() {
+                if (typeof refreshFiles === 'function') refreshFiles();
+                if (typeof refreshDiskInfo === 'function') refreshDiskInfo();
+                attempts++;
+                if (attempts < maxAttempts) setTimeout(tryRefresh, 1500);
+            }
+            setTimeout(tryRefresh, 800);
         });
 
         window.__uppy = uppy;
