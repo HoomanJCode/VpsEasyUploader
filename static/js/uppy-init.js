@@ -218,6 +218,7 @@
                 result.successful.forEach(function (file) {
                     clearResumeUrl(file);
                     setFileStateClass(file, 'is-complete');
+                    removeSpeedBadge(file);
                 });
             }
             // Poll the file list so the dashboard picks up newly uploaded files
