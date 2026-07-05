@@ -79,19 +79,23 @@
             }
         });
 
-        // ── Restore upload URL when file is (re-)added ─────────────
-        // Covers: initial add, retryUpload (pause→resume), and
-        // page-refresh re-select.
-        uppy.on('file-added', function (file) {
-            var key = resumeKey(file);
-            var url = loadResumeUrl(file);
-            console.log('[Resume:CHECK] key=', key, 'found=', !!url, 'hasTus=', !!(file.tus));
-            if (url) {
-                console.log('[Resume] injecting upload URL for', file.name, url);
-                uppy.setFileState(file.id, {
-                    tus: Object.assign({}, file.tus, { uploadUrl: url }),
-                });
-            }
+        // ── Restore: inject upload URL right before Tus creates Upload ──
+        // Pre-processors fire just before uploader plugins process files,
+        // ensuring the URL is set at the last possible moment.
+        // file-added alone didn't work because the Tus plugin was
+        // resetting file.tus between file-added and upload().
+        uppy.addPreProcessor(function (fileIDs) {
+            fileIDs.forEach(function (fileID) {
+                var file = uppy.getFile(fileID);
+                var url = loadResumeUrl(file);
+                console.log('[Resume:PREPROC] file=', file.name, 'found=', !!url, 'alreadyHas=', !!(file.tus && file.tus.uploadUrl));
+                if (url && !(file.tus && file.tus.uploadUrl)) {
+                    console.log('[Resume] injecting upload URL for', file.name, url);
+                    uppy.setFileState(fileID, {
+                        tus: Object.assign({}, file.tus || {}, { uploadUrl: url }),
+                    });
+                }
+            });
         });
 
         // ── Cleanup ────────────────────────────────────────────────
