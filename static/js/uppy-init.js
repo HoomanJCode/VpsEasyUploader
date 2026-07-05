@@ -115,7 +115,7 @@
         var STATE_CLASSES = ['is-uploading', 'is-complete', 'is-paused', 'is-error'];
 
         function findFileItem(file) {
-            return document.querySelector('.uppy-Dashboard-Item[data-id="' + file.id + '"]');
+            return document.querySelector('.uppy-DashboardItem[data-id="' + file.id + '"]');
         }
 
         function setFileStateClass(file, className) {
@@ -181,11 +181,6 @@
             setFileStateClass(file, 'is-error');
         });
 
-        // Upload retry — back to uploading
-        uppy.on('upload-retry', function (file) {
-            setFileStateClass(file, 'is-uploading');
-        });
-
         // Clean up when user removes a file (cancel, clear, etc.)
         uppy.on('file-removed', function (file) {
             clearResumeUrl(file);
@@ -195,7 +190,7 @@
         uppy.on('cancel-all', function () {
             var files = uppy.getFiles();
             files.forEach(function (f) {
-                if (!f.progress || !f.progress.uploadComplete) {
+                if ((!f.progress || !f.progress.uploadComplete) && !f.error) {
                     setFileStateClass(f, 'is-paused');
                 }
             });
