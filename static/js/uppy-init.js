@@ -17,12 +17,10 @@
         if (!Dashboard) { console.warn('Uppy.Dashboard not found'); }
         if (!Tus) { console.warn('Uppy.Tus not found — uploads will fail'); }
 
-        // TUS server runs on port 1080 alongside Flask on 8080.
-        // On production the browser reaches tusd directly; on local
-        // dev it reaches localhost:1080.
-        var tusEndpoint = window.location.origin.replace(
-            ':' + (window.location.port || '80'), ':1080'
-        ) + '/';
+        // TUS requests go through Flask's /tus/ proxy to tusd on
+        // 127.0.0.1:1080.  No extra firewall port needed — the
+        // browser uses the same origin as the dashboard.
+        var tusEndpoint = '/tus/';
 
         var uppy = new Uppy({
             debug: true,

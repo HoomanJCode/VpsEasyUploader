@@ -85,6 +85,52 @@ if not os.getenv("TUSD_HOOK_SECRET"):
         _f.write(f"\nTUSD_HOOK_SECRET={TUSD_HOOK_SECRET}\n")
     logger.info("Generated and saved TUSD_HOOK_SECRET to .env")
 
+# ---- TUS Proxy: forwards TUS protocol requests to tusd (127.0.0.1:1080) ----
+# The browser uses a same-origin /tus/ endpoint so no extra firewall
+# port is needed on the VPS.  Large PATCH bodies (up to chunkSize) are
+# buffered in memory — acceptable for a single-user uploader.
+@app.route("/tus", defaults={"path": ""}, methods=["POST", "PATCH", "HEAD", "OPTIONS", "DELETE", "GET"])
+@app.route("/tus/", defaults={"path": ""}, methods=["POST", "PATCH", "HEAD", "OPTIONS", "DELETE", "GET"])
+@app.route("/tus/<path:path>", methods=["POST", "PATCH", "HEAD", "OPTIONS", "DELETE", "GET"])
+def tus_proxy(path):
+    """Proxy TUS protocol requests to tusd running on 127.0.0.1:1080."""
+    import urllib.request
+    import urllib.error
+
+    tusd_url = f"http://127.0.0.1:1080/{path}"
+
+    # Forward headers, skipping hop-by-hop and Host
+    skip_headers = {"host", "connection", "transfer-encoding", "content-length"}
+    forward_headers = {}
+    for key, value in request.headers:
+        if key.lower() not in skip_headers:
+            forward_headers[key] = value
+
+    # Read the request body (PATCH bodies are bounded by chunkSize, ~20 MB)
+    body = request.get_data() if request.method in ("POST", "PATCH", "DELETE") else None
+
+    req = urllib.request.Request(
+        tusd_url,
+        data=body,
+        headers=forward_headers,
+        method=request.method,
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            # Build response headers, skipping hop-by-hop
+            response_headers = {}
+            for key, value in resp.getheaders():
+                if key.lower() not in skip_headers:
+                    response_headers[key] = value
+            return resp.read(), resp.status, response_headers
+    except urllib.error.HTTPError as e:
+        return e.read(), e.code, dict(e.headers.items())
+    except Exception as e:
+        logger.warning("TUS proxy error: %s", e)
+        return jsonify({"error": "TUS backend unavailable — is tusd running?"}), 502
+
+
 # ---- TUS Webhook: called by tusd when an upload completes ----
 @app.route("/tus-hook", methods=["POST"])
 def tus_hook():
