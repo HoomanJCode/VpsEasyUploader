@@ -110,12 +110,28 @@
             },
         });
 
+        // ── State-class helpers for live file-item indicators ───────────
+
+        var STATE_CLASSES = ['is-uploading', 'is-complete', 'is-paused', 'is-error'];
+
+        function findFileItem(file) {
+            return document.querySelector('.uppy-Dashboard-Item[data-id="' + file.id + '"]');
+        }
+
+        function setFileStateClass(file, className) {
+            var el = findFileItem(file);
+            if (!el) return;
+            STATE_CLASSES.forEach(function (c) { el.classList.remove(c); });
+            if (className) el.classList.add(className);
+        }
+
         // ── Resume event handlers ───────────────────────────────────────
 
         // Save URL on first chunk so pause/resume & page-refresh both work.
         // Saved once per file (guard: only when URL is new).
         uppy.on('upload-progress', function (file) {
             saveResumeUrl(file);
+            setFileStateClass(file, 'is-uploading');
         });
 
         // Restore saved URL into uppy.state.tus when a file is added.
@@ -123,14 +139,31 @@
         // re-add (same fingerprint matches saved URL).
         uppy.on('file-added', function (file) {
             restoreResumeState(file);
+            // Mark as paused until upload actually starts
+            setFileStateClass(file, 'is-paused');
         });
 
-        // Clean up localStorage when upload completes so stale URLs
-        // don't conflict with future uploads of the same file.
+        // Upload begins — switch from paused/queued to uploading
+        uppy.on('upload', function () {
+            var files = uppy.getFiles();
+            files.forEach(function (f) {
+                if (f.progress && f.progress.uploadStarted && !f.progress.uploadComplete) {
+                    setFileStateClass(f, 'is-uploading');
+                }
+            });
+        });
+
+        // Single file succeeded
+        uppy.on('upload-success', function (file) {
+            setFileStateClass(file, 'is-complete');
+        });
+
+        // Clean up localStorage and mark complete when all uploads finish
         uppy.on('complete', function (result) {
             if (result.successful) {
                 result.successful.forEach(function (file) {
                     clearResumeUrl(file);
+                    setFileStateClass(file, 'is-complete');
                 });
             }
             // Poll the file list so the dashboard picks up newly uploaded files
@@ -143,9 +176,29 @@
             setTimeout(tryRefresh, 800);
         });
 
+        // Upload error
+        uppy.on('upload-error', function (file) {
+            setFileStateClass(file, 'is-error');
+        });
+
+        // Upload retry — back to uploading
+        uppy.on('upload-retry', function (file) {
+            setFileStateClass(file, 'is-uploading');
+        });
+
         // Clean up when user removes a file (cancel, clear, etc.)
         uppy.on('file-removed', function (file) {
             clearResumeUrl(file);
+        });
+
+        // All uploads cancelled — mark remaining files as paused
+        uppy.on('cancel-all', function () {
+            var files = uppy.getFiles();
+            files.forEach(function (f) {
+                if (!f.progress || !f.progress.uploadComplete) {
+                    setFileStateClass(f, 'is-paused');
+                }
+            });
         });
 
         window.__uppy = uppy;
