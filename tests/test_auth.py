@@ -65,22 +65,18 @@ def app():
         # Patch paths in the utils modules
         import utils.auth as auth_mod
         import utils.file_ops as file_ops_mod
-        import utils.chunker as chunker_mod
 
         original_auth = auth_mod.AUTH_FILE
         original_upload = file_ops_mod.UPLOAD_DIR
         original_thumb = file_ops_mod.THUMBNAIL_DIR
-        original_chunk = chunker_mod.CHUNK_DIR
 
         tmp = Path(tmpdir)
         auth_mod.AUTH_FILE = tmp / "auth.json"
         file_ops_mod.UPLOAD_DIR = tmp / "uploads"
         file_ops_mod.THUMBNAIL_DIR = file_ops_mod.UPLOAD_DIR / ".thumbnails"
-        chunker_mod.CHUNK_DIR = file_ops_mod.UPLOAD_DIR / ".chunks"
 
         file_ops_mod.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         file_ops_mod.THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
-        chunker_mod.CHUNK_DIR.mkdir(parents=True, exist_ok=True)
 
         flask_app.config["TESTING"] = True
 
@@ -92,7 +88,6 @@ def app():
         auth_mod.AUTH_FILE = original_auth
         file_ops_mod.UPLOAD_DIR = original_upload
         file_ops_mod.THUMBNAIL_DIR = original_thumb
-        chunker_mod.CHUNK_DIR = original_chunk
 
 
 class TestRegistration:

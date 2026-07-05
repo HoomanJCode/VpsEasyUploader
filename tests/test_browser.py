@@ -102,11 +102,11 @@ def main():
 
             # ── Step 3: Wait for dashboard ────────────────────────────────
             log("Step 3: Waiting for dashboard to load...")
-            page.wait_for_selector("#drop-zone", timeout=10000)
+            page.wait_for_selector("#uppy-dashboard", timeout=10000)
             success("Dashboard loaded")
 
             # ── Step 4: Upload a test file ────────────────────────────────
-            log("Step 4: Uploading a test file...")
+            log("Step 4: Uploading a test file via Uppy Dashboard...")
 
             # Create a temporary test file
             with tempfile.NamedTemporaryFile(
@@ -115,18 +115,18 @@ def main():
                 tmp.write("Hello from VpsEasyUploader browser test!\n" * 100)
                 tmp_path = tmp.name
 
-            # Set up file chooser dialog
+            # Uppy Dashboard: click the "Browse" button inside the dashboard
             with page.expect_file_chooser() as fc_info:
-                page.click("#browse-btn")
+                page.click(".uppy-Dashboard-browse")
             file_chooser = fc_info.value
             file_chooser.set_files(tmp_path)
 
-            # Wait for upload to complete (look for completed state or file in table)
+            # Wait for upload to complete
             time.sleep(3)
             page.wait_for_timeout(2000)
 
-            # Check for completed upload
-            completed = page.query_selector(".upload-item.completed")
+            # Check for completed upload in Uppy
+            completed = page.query_selector(".uppy-StatusBar-actionBtn--done")
             if completed:
                 success("Upload completed successfully")
             else:

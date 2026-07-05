@@ -420,8 +420,57 @@ else
     echo -e "${BLUE}[i] Skipping systemd service installation.${NC}"
 fi
 
+# ── Download tusd (TUS resumable upload server) ─────────────────────────────
+echo -e "${CYAN}[6/7] Downloading tusd upload server...${NC}"
+
+TUSD_DIR_BIN="$SCRIPT_DIR/.bin"
+TUSD_BIN="$TUSD_DIR_BIN/tusd"
+
+if [ ! -f "$TUSD_BIN" ]; then
+    os_name="" arch=""
+    case "$(uname -s)" in
+        Linux)  os_name="linux" ;;
+        Darwin) os_name="darwin" ;;
+        *)      echo -e "${YELLOW}[!] Unsupported OS for tusd — skipping.${NC}" ; os_name="" ;;
+    esac
+    case "$(uname -m)" in
+        x86_64)  arch="amd64" ;;
+        aarch64|arm64) arch="arm64" ;;
+        *)       echo -e "${YELLOW}[!] Unsupported arch for tusd — skipping.${NC}" ; arch="" ;;
+    esac
+
+    if [ -n "$os_name" ] && [ -n "$arch" ]; then
+        version="v2.5.0"
+        tarball="tusd_${os_name}_${arch}.tar.gz"
+        url="https://github.com/tus/tusd/releases/download/${version}/${tarball}"
+
+        mkdir -p "$TUSD_DIR_BIN"
+        echo -e "${BLUE}[i] Downloading tusd ${version}...${NC}"
+        if command -v curl &>/dev/null; then
+            curl -sSL "$url" -o "${TUSD_DIR_BIN}/${tarball}"
+        else
+            wget -q "$url" -O "${TUSD_DIR_BIN}/${tarball}"
+        fi
+
+        tar -xzf "${TUSD_DIR_BIN}/${tarball}" -C "$TUSD_DIR_BIN"
+        rm -f "${TUSD_DIR_BIN}/${tarball}"
+
+        extracted_dir="${TUSD_DIR_BIN}/tusd_${os_name}_${arch}"
+        if [ -f "${extracted_dir}/tusd" ]; then
+            mv "${extracted_dir}/tusd" "$TUSD_BIN"
+            rm -rf "$extracted_dir"
+            chmod +x "$TUSD_BIN"
+            echo -e "${GREEN}[✓] tusd installed at $TUSD_BIN${NC}"
+        else
+            echo -e "${YELLOW}[!] tusd binary not found in archive — skipping.${NC}"
+        fi
+    fi
+else
+    echo -e "${GREEN}[✓] tusd already installed${NC}"
+fi
+
 # ── UFW firewall configuration (if available) ───────────────────────────────
-echo -e "${CYAN}[6/7] UFW firewall configuration...${NC}"
+echo -e "${CYAN}[7/7] UFW firewall configuration...${NC}"
 if command -v ufw &>/dev/null && sudo -n true 2>/dev/null; then
     echo -e "${BLUE}[i] UFW firewall detected.${NC}"
     echo -e "${BLUE}[i] Adding rule to allow TCP on port $SERVER_PORT...${NC}"
@@ -438,7 +487,7 @@ fi
 
 # ── Git initialization ──────────────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}[7/7] Initializing git repository...${NC}"
+echo -e "${CYAN}[8/8] Initializing git repository...${NC}"
 
 if [ ! -d ".git" ]; then
     git init

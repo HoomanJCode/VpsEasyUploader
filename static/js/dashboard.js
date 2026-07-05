@@ -347,149 +347,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Refresh the incomplete uploads section (only on page load;
-     * active uploads are managed directly by uploader.js rows).
-     */
-    async function refreshIncompleteUploads() {
-        try {
-            const resp = await fetch('/uploads/incomplete', { headers: csrfHeaders() });
-            const data = await resp.json();
-            const uploads = data.uploads || [];
-            const section = document.getElementById('incomplete-section');
-            const tbody = document.getElementById('incomplete-table-body');
-
-            if (uploads.length === 0) {
-                // Clear any Jinja2-rendered rows that may be stale
-                tbody.innerHTML = '';
-                section.classList.add('d-none');
-                return;
-            }
-
-            // On page load no uploader-managed rows exist yet, so clear
-            // Jinja2-rendered rows and re-render fresh.  This prevents
-            // duplicates when old rows linger or IDs don't match.
-            tbody.innerHTML = '';
-            section.classList.remove('d-none');
-
-            uploads.forEach(u => {
-                const tr = document.createElement('tr');
-                tr.id = `upload-${u.upload_id}`;
-                tr.setAttribute('data-upload-id', u.upload_id);
-                // Tag the row so cancelUpload can recognise it as a
-                // server-side incomplete record (vs a fresh drag-drop
-                // "new" or a queued resume "resume"). Treat as a full
-                // cancel — DELETE the chunks. Without this tag the
-                // fallback "null === 'resume' === false" still works,
-                // but explicit is easier to reason about in tests.
-                tr.setAttribute('data-source', 'incomplete');
-                tr.innerHTML = `
-                    <td class="text-truncate" style="max-width:300px;">${escapeHtml(u.filename)}</td>
-                    <td>${Uploader.formatBytes(u.total_size)}</td>
-                    <td>
-                        <div class="progress" style="height:6px;">
-                            <div class="progress-bar" style="width:${u.progress_percent}%"></div>
-                        </div>
-                        <small class="text-muted status-cell">${u.received_chunks_count}/${u.total_chunks} chunks (${u.progress_percent}%)</small>
-                    </td>
-                    <td class="text-nowrap text-end speed-cell">\u2014</td>
-                    <td><small class="text-muted time-cell">${formatDate(new Date(u.last_activity * 1000).toISOString())}</small></td>
-                    <td class="action-cell">
-                        <button class="btn btn-sm btn-outline-primary resume-btn"
-                                data-upload-id="${u.upload_id}"
-                                data-filename="${escapeHtml(u.filename)}">
-                            <i class="bi bi-play-fill"></i>
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger cancel-btn"
-                                data-upload-id="${u.upload_id}" title="Cancel">
-                            <i class="bi bi-x-lg"></i>
-                        </button>
-                    </td>`;
-                tbody.appendChild(tr);
-            });
-        } catch (err) {
-            console.error('Failed to fetch incomplete uploads:', err);
-        }
-    }
-
-    /**
-     * Handle resume button clicks (delegated from the uploads tbody).
-     * Tier 1: in-memory paused upload — resume directly, no picker.
-     * Tier 2: server check — verify upload still exists before asking.
-     * Tier 3: file picker — user re-selects the file with fingerprint verification.
-     */
-    async function handleResume(uploadId, filename) {
-        // Tier 1 — in-memory paused upload (no file picker)
-        if (Uploader.resumePaused(uploadId)) {
-            showToast('Resumed', `Upload of "${filename}" resumed.`);
-            return;
-        }
-
-        // Tier 2 — verify the incomplete upload still exists on the server
-        try {
-            const statusResp = await fetch(`/upload/status/${uploadId}`, { headers: csrfHeaders() });
-            if (!statusResp.ok) {
-                // Upload expired or was cleaned up
-                showToast('Not Found', 'This incomplete upload no longer exists on the server. It may have expired.', 'warning');
-                // Remove the stale row
-                const row = document.querySelector(`tr[data-upload-id="${uploadId}"]`);
-                if (row) row.remove();
-                // Hide section if no rows remain
-                const tbody = document.getElementById('incomplete-table-body');
-                if (tbody && tbody.children.length === 0) {
-                    document.getElementById('incomplete-section').classList.add('d-none');
-                }
-                return;
-            }
-            const status = await statusResp.json();
-            const expectedSize = Uploader.formatBytes(status.total_size || 0);
-            showToast('Select File', `Please re-select the file "${filename}" (${expectedSize}) to resume.`, 'primary');
-        } catch (_) {
-            showToast('Error', 'Could not verify upload status. Please try again.', 'danger');
-            return;
-        }
-
-        // Tier 3 — file picker for re-selection
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.style.display = 'none';
-        input.addEventListener('change', async () => {
-            if (input.files && input.files.length > 0) {
-                const file = input.files[0];
-                showToast('Resuming', `Resuming upload for "${file.name}"...`);
-                const ok = await Uploader.resumeFromUI(uploadId, file);
-                if (ok) {
-                    setTimeout(() => refreshFiles(), 2000);
-                }
-            }
-        });
-        document.body.appendChild(input);
-        input.click();
-        document.body.removeChild(input);
-    }
-
-    /**
-     * Bind event delegation on the uploads table for all action buttons.
-     */
-    function bindUploadsTableActions() {
-        const tbody = document.getElementById('incomplete-table-body');
-        if (!tbody) return;
-        tbody.addEventListener('click', (e) => {
-            const btn = e.target.closest('button');
-            if (!btn) return;
-            const uploadId = btn.getAttribute('data-upload-id');
-            const filename = btn.getAttribute('data-filename');
-            if (uploadId && filename && btn.classList.contains('resume-btn')) {
-                handleResume(uploadId, filename);
-                return;
-            }
-            if (uploadId && btn.classList.contains('cancel-btn')) {
-                Uploader.cancelUpload(uploadId);
-                return;
-            }
-        });
-    }
-
-    /**
      * Bind main action buttons.
      */
     function bindMainActions() {
@@ -509,18 +366,15 @@ document.addEventListener('DOMContentLoaded', () => {
     function init() {
         initBootstrap();
         bindMainActions();
-        bindUploadsTableActions();
         updateDiskInfo();
         refreshFiles();
-        refreshIncompleteUploads();
 
         // Periodic refresh of disk info (every 30s)
         setInterval(updateDiskInfo, 30000);
     }
 
-    // Expose for uploader callback (uploader.js's complete() calls
-    // refreshFiles + refreshDiskInfo on success so the page stays
-    // in sync without a navigation).
+    // Expose for uppy-init.js callback (uppy's complete() refreshes
+    // files + disk info on success so the page stays in sync).
     window.refreshFiles = refreshFiles;
     window.refreshDiskInfo = updateDiskInfo;
 
