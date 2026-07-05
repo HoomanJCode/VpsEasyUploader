@@ -97,7 +97,7 @@ def tus_proxy(path):
     import urllib.request
     import urllib.error
 
-    tusd_url = f"http://127.0.0.1:1080/{path}"
+    tusd_url = f"http://127.0.0.1:1080/files/{path}"
 
     # Forward headers, skipping hop-by-hop and Host
     skip_headers = {"host", "connection", "transfer-encoding", "content-length"}
