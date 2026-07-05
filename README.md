@@ -91,7 +91,7 @@ On the first visit to the server, you'll be prompted to set your admin password.
 | `PORT` | `8080` | Server port |
 | `SECRET_KEY` | *(auto-generated)* | Flask session secret |
 | `LOG_LEVEL` | `WARNING` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
- | `TUSD_HOOK_SECRET` | *(auto-generated)* | Shared secret between tusd and Flask webhook |
+| `TUSD_HOOK_SECRET` | *(auto-generated)* | Shared secret between tusd and Flask webhook |
 | `SSL_CERT` | *(optional)* | Path to SSL certificate |
 | `SSL_KEY` | *(optional)* | Path to SSL private key |
 
@@ -141,8 +141,10 @@ VpsEasyUploader/
 ├── setup.sh                # Interactive setup (installs deps, tusd, configures .env)
 ├── run.sh                  # Start script (auto-downloads tusd, starts Flask + tusd)
 ├── stop.sh                 # Stop script
+├── update.sh               # Update script (git pull + restart service)
 ├── .env.example            # Environment template
 ├── .gitignore
+├── LICENSE                # MIT license (Copyright (c) 2026 HoomanJCode)
 ├── README.md
 ├── templates/              # Jinja2 HTML templates
 │   ├── login.html
@@ -159,6 +161,7 @@ VpsEasyUploader/
 │   └── file_ops.py         # File listing, thumbnails, move/delete
 ├── tests/                  # Test suite
 │   ├── test_auth.py        # Authentication tests
+│   ├── test_tus_hook.py    # tusd hook payload + webhook behavior tests
 │   └── test_browser.py     # End-to-end browser test (Playwright)
 └── uploads/                # (gitignored) Uploaded files
     ├── .tusd/              # tusd in-progress upload storage
