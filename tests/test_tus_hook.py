@@ -150,6 +150,15 @@ class TestInvalidPayload:
         assert resp.status_code == 400
 
     def test_no_storage_path(self, app):
+        """
+        Real-world tusd sends multiple event types via /tus-hook. ``pre-create``
+        and ``post-create`` events have ``Size>0`` and a filename in MetaData
+        but NO ``Storage.Path`` (the file has not started uploading yet).
+        Production should ACK these as 200 OK so tusd does not reject the
+        upload — they are a legitimate event shape, not a malformed payload.
+        Other genuinely-bad payloads (missing filename, bad size, etc.) are
+        covered by the other TestInvalidPayload tests.
+        """
         payload = {
             "Upload": {
                 "Size": 100,
@@ -158,7 +167,8 @@ class TestInvalidPayload:
             }
         }
         resp = _hook_json(app, payload)
-        assert resp.status_code == 400
+        assert resp.status_code == 200
+        assert resp.get_json()["success"] is True
 
     def test_nonexistent_source_file(self, app):
         resp = _hook_json(app, _build_payload(src_path="/tmp/definitely-not-real-file.xyz"))

@@ -165,8 +165,10 @@ def tus_hook():
     """
     import shutil
 
-    # Verify the hook secret so only tusd can call this (sent as ?secret= URL param)
-    auth = request.args.get("secret", "")
+    # Verify the hook secret so only tusd can call this.
+    # tusd sends the shared secret in the Hook-Secret HTTP header
+    # (not as a URL query param).
+    auth = request.headers.get("Hook-Secret", "")
     if not secrets.compare_digest(auth, TUSD_HOOK_SECRET):
         logger.warning("TUS hook: auth failed — received=%r expected=%r", auth[:20] + '...' if len(auth) > 20 else auth, TUSD_HOOK_SECRET[:20] + '...')
         return jsonify({"error": "Unauthorized"}), 403
@@ -175,8 +177,10 @@ def tus_hook():
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    # tusd v2 wraps the Upload inside an Event key
-    upload = data.get("Event", {}).get("Upload", {})
+    # tusd v2 wraps the Upload inside an Event key ({"Event": {"Upload": {...}}}).
+    # tusd v1 and several test fixtures send a flat Upload key ({"Upload": {...}}).
+    # Real tusd v2 actually sends both fields; accept either for backward compatibility.
+    upload = data.get("Event", {}).get("Upload") or data.get("Upload") or {}
     original_filename = (
         upload.get("MetaData", {}).get("filename") or
         upload.get("Metadata", {}).get("filename") or
