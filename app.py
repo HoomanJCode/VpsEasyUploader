@@ -118,14 +118,35 @@ def tus_proxy(path):
 
     try:
         with urllib.request.urlopen(req, timeout=300) as resp:
-            # Build response headers, skipping hop-by-hop
+            # Build response headers, skipping hop-by-hop.
+            # Rewrite the Location header so tus-js-client keeps using
+            # the proxy (/tus/<id>) instead of hitting 127.0.0.1:1080 directly.
+            import re
             response_headers = {}
             for key, value in resp.getheaders():
-                if key.lower() not in skip_headers:
-                    response_headers[key] = value
+                if key.lower() in skip_headers:
+                    continue
+                if key.lower() == "location":
+                    # http://127.0.0.1:1080/files/<id>  →  /tus/<id>
+                    # or just /files/<id>                →  /tus/<id>
+                    value = re.sub(
+                        r"(https?://[^/]+)?/files/",
+                        "/tus/",
+                        value,
+                    )
+                response_headers[key] = value
             return resp.read(), resp.status, response_headers
     except urllib.error.HTTPError as e:
-        return e.read(), e.code, dict(e.headers.items())
+        response_headers = dict(e.headers.items())
+        # Also rewrite Location on error responses (e.g. 409 Conflict)
+        import re
+        if "Location" in response_headers:
+            response_headers["Location"] = re.sub(
+                r"(https?://[^/]+)?/files/",
+                "/tus/",
+                response_headers["Location"],
+            )
+        return e.read(), e.code, response_headers
     except Exception as e:
         logger.warning("TUS proxy error: %s", e)
         return jsonify({"error": "TUS backend unavailable — is tusd running?"}), 502
