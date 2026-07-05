@@ -280,6 +280,12 @@ const Uploader = (() => {
         return Math.round(bytesUploaded / elapsed);
     }
 
+    function escapeHtml(str) {
+        const d = document.createElement('div');
+        d.textContent = str;
+        return d.innerHTML;
+    }
+
     /**
      * Update the progress cell of a row managed by this module.
      * For active uploads, the chunks-bar handles its own segment states;
