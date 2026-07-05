@@ -75,7 +75,17 @@
             }
         });
 
-        uppy.on('complete', function () {
+        uppy.on('file-removed', function (file) {
+            delete savedUrls[file.name + '|' + (file.type||'') + '|' + file.size];
+        });
+
+        uppy.on('complete', function (result) {
+            // Clean up saved URLs for completed files
+            if (result.successful) {
+                result.successful.forEach(function (file) {
+                    delete savedUrls[file.name + '|' + (file.type||'') + '|' + file.size];
+                });
+            }
             // Poll the file list so the dashboard picks up newly uploaded files
             var attempts = 0;
             var maxAttempts = 4;
