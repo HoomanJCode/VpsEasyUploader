@@ -317,6 +317,38 @@ def logout():
     return redirect(url_for("login_page"))
 
 
+@app.route("/change-password", methods=["POST"])
+@login_required
+@csrf_required
+def change_password():
+    """Change the admin password (requires current password)."""
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"success": False, "error": "Invalid JSON"}), 400
+
+    current_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
+    confirm_password = data.get("confirm_password", "")
+
+    if not current_password or not new_password or not confirm_password:
+        return jsonify({"success": False, "error": "All fields are required."}), 400
+
+    if len(new_password) < 8:
+        return jsonify({"success": False, "error": "New password must be at least 8 characters."}), 400
+
+    if new_password != confirm_password:
+        return jsonify({"success": False, "error": "New passwords do not match."}), 400
+
+    stored_hash = load_password_hash()
+    if not stored_hash or not verify_password(current_password, stored_hash):
+        return jsonify({"success": False, "error": "Current password is incorrect."}), 400
+
+    password_hash = hash_password(new_password)
+    save_password_hash(password_hash)
+    logger.info("Admin password changed")
+    return jsonify({"success": True})
+
+
 # ---- Routes: File Management ----
 @app.route("/")
 @login_required
