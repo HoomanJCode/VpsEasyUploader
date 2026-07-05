@@ -35,14 +35,17 @@
         function saveResumeEntry(file, uploadUrl) {
             var entries = loadResumeEntries();
             var fp = fingerprint(file);
-            entries[fp] = { name: file.name, url: uploadUrl, size: file.size, type: file.type || '' };
+            entries[fp] = { name: file.name, url: uploadUrl, size: file.size, type: file.type || '', fp: fp };
             try { localStorage.setItem(RESUME_KEY, JSON.stringify(entries)); } catch (_) {}
         }
 
-        function removeResumeEntry(file) {
+        function removeResumeEntriesByUrl(uploadUrl) {
             var entries = loadResumeEntries();
-            delete entries[fingerprint(file)];
-            try { localStorage.setItem(RESUME_KEY, JSON.stringify(entries)); } catch (_) {}
+            var changed = false;
+            for (var key in entries) {
+                if (entries[key].url === uploadUrl) { delete entries[key]; changed = true; }
+            }
+            if (changed) try { localStorage.setItem(RESUME_KEY, JSON.stringify(entries)); } catch (_) {}
         }
 
         function loadResumeEntries() {
@@ -86,17 +89,25 @@
             }
         });
 
-        // Save the upload URL as soon as the Tus plugin creates it
-        uppy.on('upload-success', function (file, _resp) {
-            if (file.tus && file.tus.uploadUrl) {
+        // Save the upload URL as soon as the POST completes and the
+        // first progress event fires (before chunking starts).  This
+        // way the URL is persisted even if the user refreshes mid-upload.
+        var savedResume = {};
+        uppy.on('upload-progress', function (file) {
+            if (!savedResume[file.id] && file.tus && file.tus.uploadUrl) {
+                savedResume[file.id] = true;
                 saveResumeEntry(file, file.tus.uploadUrl);
             }
         });
 
-        // Clean up on complete or failure
+        // Clean up on successful completion (remove by URL so stale
+        // fingerprints from the complete event can't cause mismatches).
         uppy.on('complete', function (result) {
             if (result.successful) {
-                result.successful.forEach(function (file) { removeResumeEntry(file); });
+                result.successful.forEach(function (file) {
+                    var url = file.tus && file.tus.uploadUrl;
+                    if (url) removeResumeEntriesByUrl(url);
+                });
             }
             // Poll the file list so the dashboard picks up newly uploaded files
             var attempts = 0;
@@ -110,6 +121,7 @@
             setTimeout(tryRefresh, 800);
         });
 
+        // Keep the URL on error so the user can retry
         uppy.on('upload-error', function (file) {
             if (file.tus && file.tus.uploadUrl) {
                 saveResumeEntry(file, file.tus.uploadUrl);
