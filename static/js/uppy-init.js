@@ -89,10 +89,13 @@
         uppy.use(Dashboard, {
             target: '#uppy-dashboard',
             inline: true,
+            height: 420,
             showProgressDetails: true,
             proudlyDisplayPoweredByUppy: false,
-            height: 360,
             browserBackButtonClose: false,
+            note: 'Drop files here or click to browse. Uploads resume automatically if interrupted.',
+            showSelectedFiles: true,
+            disableStatusBar: false,
         });
 
         uppy.use(Tus, {
