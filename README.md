@@ -13,16 +13,14 @@ VpsEasyUploader gives you a private web dashboard where you can upload, preview,
 ## Features
 
 - 🔐 **Single admin account** — no public registration, just one password.
-- 📤 **Resumable chunked uploads** — huge files survive disconnections, browser refreshes, and cache clears.
-- 📋 **Upload queue** — drops are serialized through a single shared queue, so the next file waits its turn instead of fighting the current one for bandwidth and disk.
-- 🛡️ **Smart cancel** — queued resumes preserve their server-side chunks (so you can come back later), fresh drops fully clean up. Failed cancels surface their HTTP status in a destructive toast instead of being silently swallowed.
-- 💾 **Disk space checks** — space is reserved before uploading to prevent mid-transfer failures.
+- 📤 **Resumable uploads via TUS protocol** — huge files survive disconnections, browser refreshes, and cache clears. Powered by [Uppy](https://uppy.io) + [tusd](https://github.com/tus/tusd).
+- ⚡ **Parallel chunked uploads** — 20 MB chunks streamed concurrently through the TUS protocol, saturating high-bandwidth connections.
 - 🖼️ **Previews & thumbnails** — images preview in a modal; videos get auto-generated thumbnails via ffmpeg.
 - 📁 **Full file management** — rename, move, delete, download — all from a responsive dashboard.
-- 📱 **Mobile-friendly UI** — Bootstrap 5, works on phones and tablets.
-- 🚀 **Easy VPS setup** — two scripts (`setup.sh`, `run.sh`) get you running in minutes.
-- 🔄 **Systemd service** — optional auto-start and survive reboots.
-- 🧪 **Tested** — Python `pytest`, vitest JS suite, and a Playwright browser test.
+- 📱 **Mobile-friendly UI** — Bootstrap 5 + Uppy Dashboard, works on phones and tablets.
+- 🚀 **Easy VPS setup** — two scripts (`setup.sh`, `run.sh`) get you running in minutes. `./run.sh` auto-downloads and starts tusd alongside Flask.
+- 🔄 **Systemd service** — optional auto-start on boot (starts Flask + tusd together).
+- 🧪 **Tested** — Python `pytest` suite and a Playwright browser test.
 
 ---
 
@@ -93,7 +91,7 @@ On the first visit to the server, you'll be prompted to set your admin password.
 | `PORT` | `8080` | Server port |
 | `SECRET_KEY` | *(auto-generated)* | Flask session secret |
 | `LOG_LEVEL` | `WARNING` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
-| `DOMAIN` | *(optional)* | Domain name for HTTPS |
+ | `TUSD_HOOK_SECRET` | *(auto-generated)* | Shared secret between tusd and Flask webhook |
 | `SSL_CERT` | *(optional)* | Path to SSL certificate |
 | `SSL_KEY` | *(optional)* | Path to SSL private key |
 
@@ -127,14 +125,6 @@ pip install pytest playwright
 playwright install chromium
 pytest tests/ -v
 
-# JavaScript (frontend) tests — vitest covers the upload-queue
-# serializer (sequential execution; surviving throws). Zero
-# external services required: pure Node.
-npm install                  # one-time, installs vitest
-npm test                     # runs static/js/queue.test.js
-# Watch mode while iterating:
-npm run test:watch
-
 # End-to-end browser test (start the server first)
 python app.py &
 python tests/test_browser.py
@@ -146,12 +136,11 @@ python tests/test_browser.py
 
 ```
 VpsEasyUploader/
-├── app.py                  # Main Flask application
+├── app.py                  # Main Flask application + TUS webhook
 ├── requirements.txt        # Python dependencies
-├── package.json            # JavaScript dev-dependencies (vitest)
-├── package-lock.json
-├── setup.sh                # Interactive setup script
-├── run.sh                  # Start script (with --service for systemd)
+├── setup.sh                # Interactive setup (installs deps, tusd, configures .env)
+├── run.sh                  # Start script (auto-downloads tusd, starts Flask + tusd)
+├── stop.sh                 # Stop script
 ├── .env.example            # Environment template
 ├── .gitignore
 ├── README.md
@@ -162,21 +151,17 @@ VpsEasyUploader/
 ├── static/                 # Frontend assets
 │   ├── css/style.css
 │   └── js/
-│       ├── queue.js        # Upload-queue serializer (enqueueUpload)
-│       ├── queue.test.js   # Vitest suite for the queue
-│       ├── uploader.js     # Resumable upload logic
-│       └── dashboard.js    # File browser & incomplete-uploads UI
+│       ├── uppy-init.js    # Uppy Dashboard + TUS client configuration
+│       └── dashboard.js    # File browser, disk info, modals
 ├── utils/                  # Backend helpers
 │   ├── auth.py             # Password hashing & session
 │   ├── csrf.py             # CSRF token generation + decorator
-│   ├── file_ops.py         # File listing, thumbnails, move/delete
-│   └── chunker.py          # Resumable upload engine
+│   └── file_ops.py         # File listing, thumbnails, move/delete
 ├── tests/                  # Test suite
 │   ├── test_auth.py        # Authentication tests
-│   ├── test_chunks.py      # Upload + chunk tests
-│   └── test_browser.py     # End-to-end browser test
+│   └── test_browser.py     # End-to-end browser test (Playwright)
 └── uploads/                # (gitignored) Uploaded files
-    ├── .chunks/            # Incomplete chunk storage
+    ├── .tusd/              # tusd in-progress upload storage
     └── .thumbnails/        # Generated video thumbnails
 ```
 
@@ -184,34 +169,28 @@ VpsEasyUploader/
 
 ## Resumable Uploads — How It Works
 
-1. **Init**: Client generates a UUID and tells the server `filename` + `total_size`. Server reserves disk space.
-2. **Chunks**: Client splits the file into configurable chunks (default 5 MB). Each chunk is sent as multipart form data.
-3. **Status**: Before uploading chunks, the client checks which chunks the server already has (for resume).
-4. **Complete**: After all chunks are uploaded, server concatenates them into the final file.
-5. **Recovery**: If the browser tab is closed or crashes, re-selecting the same file detects the incomplete upload and resumes from where it left off.
-6. **Cleanup**: Incomplete uploads older than 7 days are automatically removed.
+VpsEasyUploader uses the [TUS protocol](https://tus.io) — the industry standard for resumable file uploads — via two components:
 
-## Upload Queue & Cancel Semantics
+| Layer | Component | Role |
+|---|---|---|
+| **Client** | [Uppy.js](https://uppy.io) Dashboard | Drag-drop UI, file selection, progress bars, chunking, pause/resume — all handled in the browser |
+| **Server** | [tusd](https://github.com/tus/tusd) | Lightweight Go binary that receives and stores upload chunks via the TUS protocol |
+| **App** | Flask | Dashboard, authentication, file browsing, and a `/tus-hook` webhook called by tusd when uploads complete |
 
-The client routes every upload (drag-drops, browse picks, resume picks, in-row resume) through a shared *upload queue* (`static/js/queue.js`). The queue guarantees that **only one upload runs at a time** — the next file waits its turn instead of fighting the current one for bandwidth and disk. The queue's serializer is unit-tested in `queue.test.js`.
+### Upload flow
 
-### Queued drops persist on reload
+1. **User selects files** in the Uppy Dashboard (drag-drop or browse).
+2. **Uppy streams chunks** (20 MB each) directly to tusd on port 1080 via the TUS protocol. Chunks are sent in parallel for maximum throughput.
+3. **tusd stores chunks** in `uploads/.tusd/` as they arrive. If the connection drops, tusd remembers the upload offset — Uppy resumes from exactly where it left off on the next attempt.
+4. **On completion**, tusd fires a POST webhook to Flask's `/tus-hook` endpoint. Flask moves the completed file from `.tusd/` into the main `uploads/` directory and generates a video thumbnail if applicable.
+5. **The file appears** in the dashboard file browser immediately.
 
-When you drop one or more files while another upload is in flight, each dropped file is **eagerly** registered with the server via `/upload/init` before it reaches the front of the queue. That means closing the tab, refreshing, or navigating away keeps the files in **Incomplete Uploads** server-side — they'll be there waiting for you on the next page load.
+### Why TUS instead of a custom chunked system
 
-### Cancel behaviour by row type
-
-Each `<tr>` in the *Uploads* table carries a `data-source` attribute that drives how cancel behaves. The actual cancel decision compares against the literal value `resume`; everything else falls into the DELETE branch:
-
-| What you see in the UI | `data-source` | Cancel action | Toast |
-|---|---|---|---|
-| **New drop** (just dragged in, 0 %) | `new` | `DELETE /upload/cancel/<id>` — full delete | `Cancelled` |
-| **Resume** of a server-incomplete upload (queued or actively uploading) | `resume` | No DELETE — chunks stay on the server | `Preserved` |
-| **Dashboard-rendered incomplete** (an old incomplete from `/uploads/incomplete`) | `incomplete` | `DELETE /upload/cancel/<id>` — full delete | `Cancelled` |
-
-A drag-drop whose `/upload/init` returns `conflict=true` (i.e. you re-dropped a file the server already had partial chunks of) gets flipped to `data-source="resume"` automatically, so its cancel preserves chunks the same way as a Dashboard Resume. Active in-flight uploads inherit the data-source set when their row was originally queued, so the table above covers both queued and active state.
-
-If the server returns a non‑2xx status (CSRF session stale, chunker error, etc.) or the request is rejected, a destructive **Cancel Failed** toast appears with the HTTP status, so cancelled work doesn't silently survive a server error. The table is re-fetched from the server on the next page nav.
+- **Standard protocol** — interoperable with any TUS-compatible client or server.
+- **Resume is built-in** — no custom fingerprinting, UUID generation, or chunk tracking code.
+- **Concurrent chunking** — tusd handles parallel chunk uploads natively; no need for a custom worker pool.
+- **Mature and battle-tested** — tusd is the official reference TUS server, used in production by Transloadit, Vimeo, and others.
 
 ---
 
