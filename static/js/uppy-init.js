@@ -22,16 +22,23 @@
         var uppy = new Uppy({ debug: true });
 
         // ── Fingerprint helper ──────────────────────────────────────────
+        // Handles both native File objects (Tus plugin passes these) and
+        // Uppy file objects (event handlers use these).  lastModified lives
+        // directly on native Files but on file.data.lastModified for Uppy.
         function fingerprint(file) {
-            return ['vps-easy', file.name, file.type, file.size, file.lastModified].join('-');
+            var lm = file.lastModified || (file.data && file.data.lastModified) || 0;
+            return ['vps-easy', file.name, file.type, file.size, lm].join('-');
         }
 
         // ── Resume: save / restore TUS upload URLs ──────────────────────
         // localStorage key → TUS upload URL (absolute path like /tus/<id>)
         var PREFIX = 'vps-resume:';
 
+        // Build the same resume key regardless of whether `file` is a
+        // Uppy file object or a native File.
         function resumeKey(file) {
-            return PREFIX + fingerprint(file);
+            var lm = file.lastModified || (file.data && file.data.lastModified) || 0;
+            return PREFIX + file.name + '|' + (file.type || '') + '|' + file.size + '|' + lm;
         }
 
         function saveResumeUrl(file) {
@@ -39,7 +46,7 @@
             var key = resumeKey(file);
             var url = file.tus.uploadUrl;
             if (localStorage.getItem(key) !== url) {
-                localStorage.setItem(key, url);
+                try { localStorage.setItem(key, url); } catch (_) {}
                 console.log('[Resume:SAVE]', key, url);
             }
         }
@@ -66,10 +73,10 @@
                     creationTime: new Date().toString(),
                     uploadUrl: url
                 });
+                var patch = {};
+                patch[fp] = record;
                 uppy.setState({
-                    tus: Object.assign({}, state, (function () {
-                        var patch = {}; patch[fp] = record; return patch;
-                    })())
+                    tus: Object.assign({}, state, patch)
                 });
                 console.log('[Resume:RESTORE] fp=' + fp + ' url=' + url);
                 return true;
