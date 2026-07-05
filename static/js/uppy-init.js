@@ -53,6 +53,28 @@
             },
         });
 
+        // ── Pause/resume: save upload URL so retryUpload can resume ──
+        // Uppy's Dashboard calls retryUpload (not pauseResume) when the
+        // user clicks Resume, creating a fresh upload attempt that loses
+        // the TUS URL.  We stash it by fingerprint and re-inject it so
+        // the Tus plugin skips POST and resumes via HEAD + PATCH.
+        var savedUrls = {};
+
+        uppy.on('upload-progress', function (file) {
+            if (file.tus && file.tus.uploadUrl && file.data) {
+                var fp = file.name + '|' + (file.type||'') + '|' + file.size;
+                if (!savedUrls[fp]) savedUrls[fp] = file.tus.uploadUrl;
+            }
+        });
+
+        uppy.on('file-added', function (file) {
+            var url = savedUrls[file.name + '|' + (file.type||'') + '|' + file.size];
+            if (url) {
+                console.log('[Resume] restoring upload URL for', file.name);
+                uppy.setFileState(file.id, { tus: { uploadUrl: url } });
+            }
+        });
+
         uppy.on('complete', function () {
             // Poll the file list so the dashboard picks up newly uploaded files
             var attempts = 0;
