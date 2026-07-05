@@ -175,10 +175,8 @@ def tus_hook():
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
 
-    # Debug: log the full payload to see what tusd sends
-    logger.warning("TUS hook payload: %s", data)
-
-    upload = data.get("Upload", {})
+    # tusd v2 wraps the Upload inside an Event key
+    upload = data.get("Event", {}).get("Upload", {})
     original_filename = (
         upload.get("MetaData", {}).get("filename") or
         upload.get("Metadata", {}).get("filename") or
