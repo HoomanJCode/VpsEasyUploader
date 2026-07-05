@@ -11,7 +11,11 @@
     document.addEventListener('DOMContentLoaded', () => {
         var _U = window.Uppy;
         if (!_U) { console.error('Uppy not loaded'); return; }
+        // Uppy v3 CDN: constructor at Uppy.Uppy, plugins at
+        // Uppy.Dashboard and Uppy.Tus.
         var Uppy = _U.Uppy, Dashboard = _U.Dashboard, Tus = _U.Tus;
+        if (!Dashboard) { console.warn('Uppy.Dashboard not found'); }
+        if (!Tus) { console.warn('Uppy.Tus not found — uploads will fail'); }
 
         // TUS server runs on port 1080 alongside Flask on 8080.
         // On production the browser reaches tusd directly; on local
@@ -21,10 +25,7 @@
         ) + '/';
 
         var uppy = new Uppy({
-            restrictions: {
-                maxFileSize: null,
-                allowedFileTypes: null,
-            },
+            debug: true,
         });
 
         uppy.use(Dashboard, {
