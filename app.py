@@ -194,6 +194,8 @@ def tus_hook():
         while dest.exists():
             dest = dest.parent / f"{stem}_{counter}{suffix}"
             counter += 1
+        # Update dest_filename to reflect the actual resolved name
+        dest_filename = str(dest.relative_to(UPLOAD_DIR))
 
     try:
         shutil.move(str(src), str(dest))
