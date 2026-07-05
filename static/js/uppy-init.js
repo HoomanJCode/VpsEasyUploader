@@ -26,7 +26,9 @@
 
         function saveResumeUrl(file) {
             if (file.tus && file.tus.uploadUrl) {
-                try { localStorage.setItem(resumeKey(file), file.tus.uploadUrl); } catch (_) {}
+                var key = resumeKey(file);
+                try { localStorage.setItem(key, file.tus.uploadUrl); } catch (_) {}
+                console.log('[Resume:SAVE] key=', key, 'url=', file.tus.uploadUrl);
             }
         }
 
@@ -81,13 +83,11 @@
         // Covers: initial add, retryUpload (pause→resume), and
         // page-refresh re-select.
         uppy.on('file-added', function (file) {
+            var key = resumeKey(file);
             var url = loadResumeUrl(file);
+            console.log('[Resume:CHECK] key=', key, 'found=', !!url, 'hasTus=', !!(file.tus));
             if (url) {
-                console.log('[Resume] found upload URL for', file.name);
-                // CRITICAL: Object.assign merges into the existing
-                // file.tus object — a plain {tus: {uploadUrl}} would
-                // REPLACE it, wiping Tus plugin state and forcing a
-                // fresh POST instead of HEAD+PATCH.
+                console.log('[Resume] injecting upload URL for', file.name, url);
                 uppy.setFileState(file.id, {
                     tus: Object.assign({}, file.tus, { uploadUrl: url }),
                 });
