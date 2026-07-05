@@ -132,11 +132,11 @@ def init_upload(filename: str, total_size: int, upload_id: str | None = None, fi
             raise ValueError(f"Failed to reserve disk space: {e}")
 
     # Save metadata, preserving received_chunks from existing uploads
-    received_chunks = existing_meta.get("received_chunks", []) if existing_meta else []
-    # On resume, verify existing chunk files are still on disk
-    if existing_meta:
-        received_chunks = [i for i in received_chunks
-                          if _get_chunk_path(upload_id, i).exists()]
+    # On resume, derive received_chunks from actual files on disk —
+    # meta.json's list is stale since save_chunk no longer updates it.
+    # This ensures the client won't re-upload chunks that were already
+    # saved but not recorded in meta.json.
+    received_chunks = _list_chunk_files(upload_id) if existing_meta else []
     created_at = existing_meta.get("created_at", time.time()) if existing_meta else time.time()
     meta = {
         "upload_id": upload_id,
@@ -185,6 +185,10 @@ def save_chunk(upload_id: str, chunk_index: int, chunk_data: bytes) -> bool:
     Save a single chunk of an upload to disk.
     Validates chunk size against expected size (except last chunk which may be smaller).
     Returns True on success, False on failure.
+
+    Does NOT update meta.json received_chunks — chunk presence is derived
+    from the filesystem in get_upload_status.  This avoids the meta.json
+    read-modify-write contention when 4 concurrent workers all write chunks.
     """
     meta = load_meta(upload_id)
     if meta is None:
@@ -210,19 +214,50 @@ def save_chunk(upload_id: str, chunk_index: int, chunk_data: bytes) -> bool:
     except OSError:
         return False
 
-    # Update metadata
-    if chunk_index not in meta["received_chunks"]:
-        meta["received_chunks"].append(chunk_index)
-        meta["received_chunks"].sort()
-    meta["last_activity"] = time.time()
-    save_meta(upload_id, meta)
+    # Touch the upload directory's mtime so cleanup_expired_uploads
+    # can detect activity.  We intentionally do NOT call save_meta —
+    # writing JSON per chunk creates IO contention with concurrent
+    # workers and is unnecessary since _list_chunk_files derives the
+    # chunk list from actual files on disk.
+    upload_dir = _get_upload_dir(upload_id)
+    try:
+        os.utime(upload_dir, None)
+    except OSError:
+        pass
 
     return True
+
+
+def _list_chunk_files(upload_id: str) -> list[int]:
+    """
+    Derive received chunk indices from actual chunk files on disk.
+    This is the authoritative source of truth — meta.json's
+    received_chunks list may be stale if concurrent workers raced.
+    """
+    upload_dir = _get_upload_dir(upload_id)
+    if not upload_dir.exists():
+        return []
+    indices = []
+    for entry in upload_dir.iterdir():
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if name.startswith("chunk_"):
+            # Only count chunk_NNNN files (skip partial/temp files)
+            try:
+                idx = int(name.replace("chunk_", ""))
+                indices.append(idx)
+            except ValueError:
+                pass
+    indices.sort()
+    return indices
 
 
 def get_upload_status(upload_id: str) -> dict | None:
     """
     Get the status of an upload.
+    Derives received_chunks from actual chunk files on disk (not meta.json)
+    so concurrent chunk writes don't lose track of completed chunks.
     Returns dict with received_chunks and total_chunks, or None if not found.
     """
     meta = load_meta(upload_id)
@@ -233,7 +268,7 @@ def get_upload_status(upload_id: str) -> dict | None:
         "filename": meta["filename"],
         "total_size": meta["total_size"],
         "total_chunks": meta["total_chunks"],
-        "received_chunks": meta["received_chunks"],
+        "received_chunks": _list_chunk_files(upload_id),
         "chunk_size": meta["chunk_size"],
         "file_fingerprint": meta.get("file_fingerprint"),
     }
@@ -245,7 +280,7 @@ def complete_upload(upload_id: str) -> tuple[bool, str]:
     Returns (success, message).
 
     Steps:
-    1. Verify all chunks are present.
+    1. Verify all chunks are present (checks actual files on disk).
     2. Concatenate chunks in order into the target file.
     3. Clean up chunk directory and reserved space.
     4. Delete metadata.
@@ -254,9 +289,11 @@ def complete_upload(upload_id: str) -> tuple[bool, str]:
     if meta is None:
         return False, "Upload not found"
 
-    if len(meta["received_chunks"]) != meta["total_chunks"]:
-        missing = set(range(meta["total_chunks"])) - set(meta["received_chunks"])
-        return False, f"Missing chunks: {sorted(missing)}"
+    # Check chunk files on disk (authoritative source, not meta.json)
+    received = _list_chunk_files(upload_id)
+    if len(received) != meta["total_chunks"]:
+        missing = sorted(set(range(meta["total_chunks"])) - set(received))
+        return False, f"Missing chunks: {missing}"
 
     # Verify all chunk files exist and have correct sizes
     for i in range(meta["total_chunks"]):
@@ -333,7 +370,7 @@ def list_incomplete_uploads() -> list[dict]:
             continue
 
         total = meta["total_chunks"]
-        received = len(meta["received_chunks"])
+        received = len(_list_chunk_files(upload_dir.name))
         incomplete.append({
             "upload_id": meta["upload_id"],
             "filename": meta["filename"],
@@ -371,7 +408,14 @@ def cleanup_expired_uploads() -> int:
             cleaned += 1
             continue
 
-        last_activity = meta.get("last_activity", meta.get("created_at", 0))
+        # Use the newer of meta's last_activity and the directory mtime
+        # (save_chunk touches the directory, not meta.json).
+        dir_mtime = upload_dir.stat().st_mtime if upload_dir.exists() else 0
+        last_activity = max(
+            meta.get("last_activity", 0),
+            meta.get("created_at", 0),
+            dir_mtime,
+        )
         if now - last_activity > INCOMPLETE_MAX_AGE_SECONDS:
             cleanup_upload(upload_dir.name)
             cleaned += 1

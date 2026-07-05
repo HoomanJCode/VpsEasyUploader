@@ -41,7 +41,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours
 
 # Custom config from .env
-app.config["CHUNK_SIZE_MB"] = int(os.getenv("CHUNK_SIZE_MB", "5"))
+app.config["CHUNK_SIZE_MB"] = int(os.getenv("CHUNK_SIZE_MB", "20"))
 app.config["LOG_LEVEL"] = os.getenv("LOG_LEVEL", "WARNING")
 
 # ---- Logging Setup ----
