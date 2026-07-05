@@ -75,7 +75,7 @@
     border-color: rgba(0,0,0,0.1) !important;
 }
 
-/* ===== State Indicators (applied via JS) ===== */
+/* ── State Indicators (applied via JS) ===== */
 
 /* Uploading: blue left accent + pulsing glow */
 .uppy-DashboardItem.is-uploading {
@@ -112,6 +112,10 @@
     border-radius: 0.5rem !important;
     overflow: hidden !important;
     box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+}
+
+[data-bs-theme="dark"] .uppy-DashboardItem-preview {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3) !important;
 }
 
 .uppy-DashboardItem-previewInnerWrap {
@@ -494,7 +498,7 @@ tr[data-previewable="true"]:hover {
 [data-bs-theme="dark"] .uppy-DashboardItem.is-uploading {
     border-left-color: #3d8bfd !important;
     box-shadow: 0 0 0 2px rgba(61,139,253,0.12), 0 2px 6px rgba(0,0,0,0.25) !important;
-    animation-name: uploadItemPulseDark;
+    animation: uploadItemPulseDark 2s ease-in-out infinite !important;
 }
 
 @keyframes uploadItemPulseDark {
@@ -560,6 +564,17 @@ tr[data-previewable="true"]:hover {
 [data-bs-theme="dark"] .uppy-StatusBar {
     background: #1e1e2e !important;
     border-top-color: #2d2d3f !important;
+}
+
+/* ── Status Bar Retry Button ── */
+[data-bs-theme="dark"] .uppy-StatusBar-actionBtn--retry {
+    background: #3d8bfd !important;
+    color: #fff !important;
+}
+
+[data-bs-theme="dark"] .uppy-StatusBar-actionBtn--retry:hover {
+    background: #5b9cfd !important;
+    box-shadow: 0 2px 8px rgba(61,139,253,0.3) !important;
 }
 
 /* ── Dashboard Tabs ── */
