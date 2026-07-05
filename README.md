@@ -93,7 +93,6 @@ On the first visit to the server, you'll be prompted to set your admin password.
 | `PORT` | `8080` | Server port |
 | `SECRET_KEY` | *(auto-generated)* | Flask session secret |
 | `LOG_LEVEL` | `WARNING` | Logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
-| `CHUNK_SIZE_MB` | `5` | Size of each upload chunk in MB |
 | `DOMAIN` | *(optional)* | Domain name for HTTPS |
 | `SSL_CERT` | *(optional)* | Path to SSL certificate |
 | `SSL_KEY` | *(optional)* | Path to SSL private key |

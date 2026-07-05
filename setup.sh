@@ -323,14 +323,6 @@ if [[ "$USE_HTTPS" =~ ^[Yy]$ ]]; then
     fi
 fi
 
-# Chunk size
-echo ""
-echo -e "${BLUE}Upload chunk size (for resumable uploads)${NC}"
-echo "  Larger chunks = fewer HTTP requests but more memory per request."
-echo "  5 MB is a good default for most VPS setups."
-read -rp "Chunk size in MB [5]: " CHUNK_SIZE
-CHUNK_SIZE=${CHUNK_SIZE:-5}
-
 # Log level
 echo ""
 echo -e "${BLUE}Log level${NC}"
@@ -351,7 +343,6 @@ IP=$SERVER_IP
 PORT=$SERVER_PORT
 SECRET_KEY=$SECRET_KEY
 LOG_LEVEL=$LOG_LEVEL
-CHUNK_SIZE_MB=$CHUNK_SIZE
 EOF
 
 if [ -n "$DOMAIN" ]; then
