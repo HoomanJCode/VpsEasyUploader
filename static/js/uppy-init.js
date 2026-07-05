@@ -113,6 +113,8 @@
         // ── State-class helpers for live file-item indicators ───────────
 
         var STATE_CLASSES = ['is-uploading', 'is-complete', 'is-paused', 'is-error'];
+        // Per-file speed tracking
+        var speedTrack = {};
 
         function findFileItem(file) {
             return document.querySelector('.uppy-DashboardItem[data-id="' + file.id + '"]');
@@ -125,6 +127,56 @@
             if (className) el.classList.add(className);
         }
 
+        function formatSpeed(bytesPerSec) {
+            if (bytesPerSec >= 1e6) return (bytesPerSec / 1e6).toFixed(1) + ' MB/s';
+            if (bytesPerSec >= 1e3) return (bytesPerSec / 1e3).toFixed(0) + ' KB/s';
+            return bytesPerSec + ' B/s';
+        }
+
+        function updateSpeedBadge(file) {
+            var el = findFileItem(file);
+            if (!el) return;
+            var statusEl = el.querySelector('.uppy-DashboardItem-status');
+            if (!statusEl) return;
+
+            var badge = el.querySelector('.uppy-speed-badge');
+            var now = Date.now();
+            var bytes = file.progress.bytesUploaded || 0;
+            var track = speedTrack[file.id];
+
+            if (track && track.lastBytes < bytes && track.lastTime < now) {
+                var elapsed = (now - track.lastTime) / 1000;
+                if (elapsed > 0.1) {
+                    var speed = (bytes - track.lastBytes) / elapsed;
+                    if (!badge) {
+                        badge = document.createElement('span');
+                        badge.className = 'uppy-speed-badge';
+                        badge.innerHTML = '<i class="bi bi-lightning-charge-fill"></i>';
+                        statusEl.appendChild(badge);
+                    }
+                    badge.lastChild.textContent = ' ' + formatSpeed(speed);
+                }
+            } else if (!track) {
+                // First data point — show placeholder
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'uppy-speed-badge';
+                    badge.innerHTML = '<i class="bi bi-lightning-charge-fill"></i> calculating...';
+                    statusEl.appendChild(badge);
+                }
+            }
+
+            speedTrack[file.id] = { lastBytes: bytes, lastTime: now };
+        }
+
+        function removeSpeedBadge(file) {
+            var el = findFileItem(file);
+            if (!el) return;
+            var badge = el.querySelector('.uppy-speed-badge');
+            if (badge) badge.remove();
+            delete speedTrack[file.id];
+        }
+
         // ── Resume event handlers ───────────────────────────────────────
 
         // Save URL on first chunk so pause/resume & page-refresh both work.
@@ -132,6 +184,7 @@
         uppy.on('upload-progress', function (file) {
             saveResumeUrl(file);
             setFileStateClass(file, 'is-uploading');
+            updateSpeedBadge(file);
         });
 
         // Restore saved URL into uppy.state.tus when a file is added.
@@ -156,6 +209,7 @@
         // Single file succeeded
         uppy.on('upload-success', function (file) {
             setFileStateClass(file, 'is-complete');
+            removeSpeedBadge(file);
         });
 
         // Clean up localStorage and mark complete when all uploads finish
@@ -179,11 +233,13 @@
         // Upload error
         uppy.on('upload-error', function (file) {
             setFileStateClass(file, 'is-error');
+            removeSpeedBadge(file);
         });
 
         // Clean up when user removes a file (cancel, clear, etc.)
         uppy.on('file-removed', function (file) {
             clearResumeUrl(file);
+            removeSpeedBadge(file);
         });
 
         // All uploads cancelled — mark remaining files as paused
