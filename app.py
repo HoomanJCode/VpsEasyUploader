@@ -176,7 +176,7 @@ def tus_hook():
         return jsonify({"error": "Invalid JSON"}), 400
 
     # Debug: log the full payload to see what tusd sends
-    logger.info("TUS hook payload: %s", data)
+    logger.warning("TUS hook payload: %s", data)
 
     upload = data.get("Upload", {})
     original_filename = (
