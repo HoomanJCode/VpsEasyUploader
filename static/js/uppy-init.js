@@ -69,8 +69,10 @@
         });
 
         // ── Save upload URL to localStorage on first progress ──────
+        var savedOnce = {};
         uppy.on('upload-progress', function (file) {
-            if (file.tus && file.tus.uploadUrl) {
+            if (!savedOnce[file.id] && file.tus && file.tus.uploadUrl) {
+                savedOnce[file.id] = true;
                 saveResumeUrl(file);
             }
         });
