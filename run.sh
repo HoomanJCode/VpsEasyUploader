@@ -41,19 +41,26 @@ LOG_LEVEL="${LOG_LEVEL:-WARNING}"
 
 # ── Handle --service flag ───────────────────────────────────────────────────
 if [ "${1:-}" = "--service" ]; then
-    echo -e "${BLUE}[i] Installing/updating systemd service...${NC}"
-
     SERVICE_NAME="vpseasyuploader"
     SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
     CURRENT_USER=$(whoami)
     CURRENT_GROUP=$(id -gn)
 
-    TUSD_BIN_PATH="$SCRIPT_DIR/.bin/tusd"
-TUSD_DATA_DIR="$SCRIPT_DIR/uploads/.tusd"
-# Read hook secret from .env (safer than inline grep in ExecStart)
-TUSD_HOOK_SECRET_VAL=$(grep '^TUSD_HOOK_SECRET=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d'=' -f2- | head -1 || echo "")
+    # Check if the service already exists
+    SERVICE_EXISTS=false
+    if [ -f "$SERVICE_FILE" ]; then
+        SERVICE_EXISTS=true
+        echo -e "${BLUE}[i] Updating existing systemd service...${NC}"
+    else
+        echo -e "${BLUE}[i] Installing systemd service...${NC}"
+    fi
 
-sudo tee "$SERVICE_FILE" > /dev/null <<SERVICEEOF
+    TUSD_BIN_PATH="$SCRIPT_DIR/.bin/tusd"
+    TUSD_DATA_DIR="$SCRIPT_DIR/uploads/.tusd"
+    # Read hook secret from .env (expanded at template-write time)
+    TUSD_HOOK_SECRET_VAL=$(grep '^TUSD_HOOK_SECRET=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d'=' -f2- | head -1 || echo "")
+
+    sudo tee "$SERVICE_FILE" > /dev/null <<SERVICEEOF
 [Unit]
 Description=VpsEasyUploader — Personal File Upload Server
 After=network.target
@@ -79,9 +86,15 @@ SERVICEEOF
 
     sudo systemctl daemon-reload
     sudo systemctl enable "$SERVICE_NAME" 2>/dev/null || true
-    sudo systemctl restart "$SERVICE_NAME" 2>/dev/null || true
 
-    echo -e "${GREEN}[✓] Service installed and started.${NC}"
+    if $SERVICE_EXISTS; then
+        sudo systemctl restart "$SERVICE_NAME" 2>/dev/null || true
+        echo -e "${GREEN}[✓] Service updated and restarted.${NC}"
+    else
+        sudo systemctl start "$SERVICE_NAME" 2>/dev/null || true
+        echo -e "${GREEN}[✓] Service installed and started.${NC}"
+    fi
+
     echo -e "${BLUE}[i] Check status: sudo systemctl status $SERVICE_NAME${NC}"
     echo -e "${BLUE}[i] View logs:   sudo journalctl -u $SERVICE_NAME -f${NC}"
     exit 0
