@@ -706,7 +706,16 @@ const Uploader = (() => {
     }
 
     /**
-     * Upload every missing chunk, respecting the pause flag.
+     * Number of chunks to upload concurrently.
+     * Tuned for Waitress with 8 threads — keeps 4+ threads free for
+     * dashboard API calls and other browser tabs.
+     */
+    const CHUNK_CONCURRENCY = 4;
+
+    /**
+     * Upload every missing chunk using a parallel worker-pool.
+     * Workers share a cursor across the chunk list; JS's single-threaded
+     * event loop makes the increment naturally atomic.
      */
     async function uploadMissingChunks(uploadId) {
         const state = activeUploads.get(uploadId);
@@ -725,67 +734,74 @@ const Uploader = (() => {
             const cs = meta.chunk_size || chunkSize;
 
             let done = received.size;
-            // Pick the label once at the start so it stays stable for the
-            // whole chunk loop; new uploads say "Uploading…", resumes keep
-            // saying "Resuming…" all the way until Finalizing.
             const initialLabel = done > 0 ? 'Resuming…' : 'Uploading…';
             updateRowProgress(uploadId, done, totalChunks, null, initialLabel);
 
-            for (let i = 0; i < totalChunks; i++) {
-                // --- CANCEL CHECK ---
-                if (state.cancelled) {
-                    removeUploadRow(uploadId);
-                    activeUploads.delete(uploadId);
-                    return;
-                }
-                // --- PAUSE CHECK (top of loop — between chunks) ---
-                if (state.paused) {
-                    setRowPaused(uploadId, meta.filename);
-                    return;
-                }
-                // --- SKIP already-uploaded chunks (rendered as chunk-done on init) ---
-                if (received.has(i)) continue;
+            let cursor = 0;
+            let hasError = false;
 
-                // Mark the segment as in-flight before fetching
-                setChunkState(uploadId, i, 'uploading');
+            const worker = async () => {
+                while (true) {
+                    if (state.cancelled || state.paused || hasError) return;
 
-                const start = i * cs;
-                const end = Math.min(start + cs, totalSize);
-                const blob = file.slice(start, end);
+                    const i = cursor++;
+                    if (i >= totalChunks) return;
 
-                const formData = new FormData();
-                formData.append('upload_id', uploadId);
-                formData.append('chunk_index', String(i));
-                formData.append('chunk_data', blob, `chunk_${i}`);
+                    if (received.has(i)) continue;
 
-                const chunkResp = await fetch('/upload/chunk', {
-                    method: 'POST',
-                    headers: csrfHeaders(),
-                    body: formData,
-                });
-                if (!chunkResp.ok) {
-                    setChunkState(uploadId, i, 'error');
-                    const e = await chunkResp.json().catch(() => ({}));
-                    throw new Error(e.error || `Chunk ${i} upload failed`);
+                    setChunkState(uploadId, i, 'uploading');
+
+                    const start = i * cs;
+                    const end = Math.min(start + cs, totalSize);
+                    const blob = file.slice(start, end);
+
+                    const formData = new FormData();
+                    formData.append('upload_id', uploadId);
+                    formData.append('chunk_index', String(i));
+                    formData.append('chunk_data', blob, `chunk_${i}`);
+
+                    try {
+                        const chunkResp = await fetch('/upload/chunk', {
+                            method: 'POST',
+                            headers: csrfHeaders(),
+                            body: formData,
+                        });
+                        if (!chunkResp.ok) {
+                            const e = await chunkResp.json().catch(() => ({}));
+                            throw new Error(e.error || `Chunk ${i} upload failed`);
+                        }
+                        done++;
+                        state.progress = done;
+                        if (!meta.received_chunks) meta.received_chunks = [];
+                        meta.received_chunks.push(i);
+                        received.add(i);
+                        setChunkState(uploadId, i, 'done');
+                        updateRowProgress(uploadId, done, totalChunks, null, initialLabel);
+                        updateRowSpeed(uploadId, calcSpeed(state, cs));
+                    } catch (err) {
+                        hasError = true;
+                        setChunkState(uploadId, i, 'error');
+                        throw err;
+                    }
                 }
-                done++;
-                state.progress = done;
-                // Keep meta in sync so pause+resume starts from the correct count
-                if (!meta.received_chunks) meta.received_chunks = [];
-                meta.received_chunks.push(i);
-                received.add(i);
-                setChunkState(uploadId, i, 'done');
-                updateRowProgress(uploadId, done, totalChunks, null, initialLabel);
-                updateRowSpeed(uploadId, calcSpeed(state, cs));
-                // If user paused during this chunk, restore paused UI and bail
-                if (state.paused) {
-                    setRowPaused(uploadId, meta.filename);
-                    return;
-                }
+            };
+
+            const workers = Array(CHUNK_CONCURRENCY).fill(null).map(() => worker());
+            await Promise.all(workers);
+
+            // Post-loop: handle exit reason
+            if (state.cancelled) {
+                removeUploadRow(uploadId);
+                activeUploads.delete(uploadId);
+                return;
             }
-
-            // All chunks done
-            await complete(uploadId);
+            if (state.paused) {
+                setRowPaused(uploadId, meta.filename);
+                return;
+            }
+            if (!hasError && done >= totalChunks) {
+                await complete(uploadId);
+            }
         } finally {
             state._looping = false;
         }

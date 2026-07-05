@@ -58,7 +58,7 @@ Type=simple
 User=$CURRENT_USER
 Group=$CURRENT_GROUP
 WorkingDirectory=$SCRIPT_DIR
-ExecStart=$SCRIPT_DIR/venv/bin/python -m waitress --host=$IP --port=$PORT --threads=4 app:app
+ExecStart=$SCRIPT_DIR/venv/bin/python -m waitress --host=$IP --port=$PORT --threads=8 app:app
 Restart=always
 RestartSec=5
 Environment="PATH=$SCRIPT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
@@ -103,10 +103,11 @@ echo ""
 
 # Start Waitress in production mode (multi-threaded)
 # Flask's built-in server is NOT used for production.
-# Threads=4 handles multiple concurrent uploads.
+# Threads=8 to support parallel chunk uploads (4 concurrent
+# chunks per upload + dashboard API calls).
 python -m waitress \
     --host="$IP" \
     --port="$PORT" \
-    --threads=4 \
+    --threads=8 \
     --channel-timeout=120 \
     app:app

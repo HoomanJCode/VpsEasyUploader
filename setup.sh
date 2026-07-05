@@ -400,7 +400,7 @@ Type=simple
 User=$CURRENT_USER
 Group=$CURRENT_GROUP
 WorkingDirectory=$SCRIPT_DIR
-ExecStart=$SCRIPT_DIR/venv/bin/python -m waitress --host=$SERVER_IP --port=$SERVER_PORT app:app
+ExecStart=$SCRIPT_DIR/venv/bin/python -m waitress --host=$SERVER_IP --port=$SERVER_PORT --threads=8 app:app
 Restart=always
 RestartSec=5
 Environment="PATH=$SCRIPT_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin"
