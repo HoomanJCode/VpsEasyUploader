@@ -128,6 +128,13 @@
             }
         });
 
+        // Clean up when user removes/cancels a file mid-upload
+        uppy.on('file-removed', function (file) {
+            if (file.tus && file.tus.uploadUrl) {
+                removeResumeEntriesByUrl(file.tus.uploadUrl);
+            }
+        });
+
         window.__uppy = uppy;
     });
 })();
