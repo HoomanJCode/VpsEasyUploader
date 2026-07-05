@@ -194,6 +194,7 @@
 }
 
 .uppy-DashboardItem-progressIndicator {
+    position: relative !important;
     border-radius: 1rem !important;
     transition: width 0.3s ease !important;
     /* Base shimmer gradient + chunk-segment dividers layered on top.
@@ -606,6 +607,7 @@ tr[data-previewable="true"]:hover {
 }
 
 [data-bs-theme="dark"] .uppy-DashboardItem-progressIndicator {
+    position: relative !important;
     background: linear-gradient(90deg, #3d8bfd, #5b9cfd, #3d8bfd) !important;
     background-size: 200% 100% !important;
     box-shadow: 0 0 8px rgba(61, 139, 253, 0.3) !important;
