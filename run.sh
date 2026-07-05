@@ -60,6 +60,13 @@ if [ "${1:-}" = "--service" ]; then
     # Read hook secret from .env (expanded at template-write time)
     TUSD_HOOK_SECRET_VAL=$(grep '^TUSD_HOOK_SECRET=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d'=' -f2- | head -1 || echo "")
 
+    # Build the tusd command line — only add hooks flags if secret is set
+    if [ -n "$TUSD_HOOK_SECRET_VAL" ]; then
+        TUSD_CMD_LINE="$TUSD_BIN_PATH --host=0.0.0.0 --port=1080 --dir=$TUSD_DATA_DIR --hooks-http=http://127.0.0.1:$PORT/tus-hook --hooks-http-forward-headers=Hook-Secret:$TUSD_HOOK_SECRET_VAL --hooks-enabled-events=post-finish"
+    else
+        TUSD_CMD_LINE="$TUSD_BIN_PATH --host=0.0.0.0 --port=1080 --dir=$TUSD_DATA_DIR"
+    fi
+
     sudo tee "$SERVICE_FILE" > /dev/null <<SERVICEEOF
 [Unit]
 Description=VpsEasyUploader — Personal File Upload Server
@@ -72,7 +79,7 @@ Group=$CURRENT_GROUP
 WorkingDirectory=$SCRIPT_DIR
 ExecStartPre=/bin/mkdir -p $TUSD_DATA_DIR
 ExecStart=/bin/sh -c '\
-  $TUSD_BIN_PATH -host=0.0.0.0 -port=1080 -dir=$TUSD_DATA_DIR -hooks-http=http://127.0.0.1:$PORT/tus-hook -hooks-http-forward-headers=Hook-Secret:$TUSD_HOOK_SECRET_VAL -hooks-enabled-events=post-finish & \
+  $TUSD_CMD_LINE & \
   TUSD_PID=\$! ; \
   trap "kill \$TUSD_PID 2>/dev/null" EXIT ; \
   $SCRIPT_DIR/venv/bin/python -m waitress --host=$IP --port=$PORT --threads=8 app:app'
@@ -178,18 +185,18 @@ mkdir -p "$TUSD_DATA"
 echo -e "${BLUE}[i] Starting tusd on port ${TUSD_PORT}...${NC}"
 if [ -n "$TUSD_HOOK_SECRET" ]; then
     "$TUSD_BIN" \
-        -host="0.0.0.0" \
-        -port="$TUSD_PORT" \
-        -dir="$TUSD_DATA" \
-        -hooks-http="$TUSD_HOOK_URL" \
-        -hooks-http-forward-headers="Hook-Secret:${TUSD_HOOK_SECRET}" \
-        -hooks-enabled-events="post-finish" \
+        --host="0.0.0.0" \
+        --port="$TUSD_PORT" \
+        --dir="$TUSD_DATA" \
+        --hooks-http="$TUSD_HOOK_URL" \
+        --hooks-http-forward-headers="Hook-Secret:${TUSD_HOOK_SECRET}" \
+        --hooks-enabled-events="post-finish" \
         &
 else
     "$TUSD_BIN" \
-        -host="0.0.0.0" \
-        -port="$TUSD_PORT" \
-        -dir="$TUSD_DATA" \
+        --host="0.0.0.0" \
+        --port="$TUSD_PORT" \
+        --dir="$TUSD_DATA" \
         &
 fi
 TUSD_PID=$!
