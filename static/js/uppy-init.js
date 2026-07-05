@@ -12,8 +12,9 @@
         var _U = window.Uppy;
         if (!_U) { console.error('Uppy not loaded'); return; }
         // Uppy v3 CDN: constructor at Uppy.Uppy, plugins at
-        // Uppy.Dashboard and Uppy.Tus.
-        var Uppy = _U.Uppy, Dashboard = _U.Dashboard, Tus = _U.Tus;
+        // Uppy.Dashboard, Uppy.Tus, and Uppy.GoldenRetriever.
+        var Uppy = _U.Uppy, Dashboard = _U.Dashboard, Tus = _U.Tus,
+            GoldenRetriever = _U.GoldenRetriever;
         if (!Dashboard) { console.warn('Uppy.Dashboard not found'); }
         if (!Tus) { console.warn('Uppy.Tus not found — uploads will fail'); }
 
@@ -45,6 +46,19 @@
                 if (meta) req.setHeader('X-CSRF-Token', meta.getAttribute('content'));
             },
         });
+
+        // GoldenRetriever persists upload state in IndexedDB so
+        // in-progress uploads survive page refreshes, browser
+        // crashes, and accidental tab closures.  When the user
+        // returns, partial uploads reappear in the Dashboard
+        // and resume from where they left off.
+        if (GoldenRetriever) {
+            uppy.use(GoldenRetriever, {
+                serviceWorker: false,
+            });
+        } else {
+            console.warn('Uppy.GoldenRetriever not available — uploads will not survive page refreshes');
+        }
 
         uppy.on('complete', function () {
             // The TUS webhook moves the file from .tusd/ to uploads/
