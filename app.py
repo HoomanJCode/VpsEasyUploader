@@ -175,6 +175,9 @@ def tus_hook():
     if not data:
         return jsonify({"error": "Invalid JSON"}), 400
 
+    # Debug: log the full payload to see what tusd sends
+    logger.info("TUS hook payload: %s", data)
+
     upload = data.get("Upload", {})
     original_filename = (
         upload.get("MetaData", {}).get("filename") or
