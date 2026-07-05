@@ -166,6 +166,7 @@ def tus_hook():
     # Verify the hook secret so only tusd can call this
     auth = request.headers.get("Hook-Secret", "")
     if not secrets.compare_digest(auth, TUSD_HOOK_SECRET):
+        logger.warning("TUS hook: auth failed — received=%r expected=%r", auth[:20] + '...' if len(auth) > 20 else auth, TUSD_HOOK_SECRET[:20] + '...')
         return jsonify({"error": "Unauthorized"}), 403
 
     data = request.get_json(silent=True)
