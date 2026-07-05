@@ -63,7 +63,7 @@ if [ "${1:-}" = "--service" ]; then
     # Build the tusd command line — only add hooks flags if secret is set
     # NOTE: tusd v2.x uses single-dash flags: -host, -port, -upload-dir, etc.
     if [ -n "$TUSD_HOOK_SECRET_VAL" ]; then
-        TUSD_CMD_LINE="$TUSD_BIN_PATH -host=0.0.0.0 -port=1080 -upload-dir=$TUSD_DATA_DIR -hooks-http=http://127.0.0.1:$PORT/tus-hook -hooks-http-forward-headers=Hook-Secret:$TUSD_HOOK_SECRET_VAL -hooks-enabled-events=post-finish"
+        TUSD_CMD_LINE="$TUSD_BIN_PATH -host=0.0.0.0 -port=1080 -upload-dir=$TUSD_DATA_DIR -hooks-http=http://127.0.0.1:$PORT/tus-hook -hooks-http-forward-headers='Hook-Secret: $TUSD_HOOK_SECRET_VAL' -hooks-enabled-events=post-finish"
     else
         TUSD_CMD_LINE="$TUSD_BIN_PATH -host=0.0.0.0 -port=1080 -upload-dir=$TUSD_DATA_DIR"
     fi
@@ -184,17 +184,16 @@ mkdir -p "$TUSD_DATA"
 
 # ── Start tusd in background ────────────────────────────────────────────────
 echo -e "${BLUE}[i] Starting tusd on port ${TUSD_PORT}...${NC}"
-# NOTE: tusd v2.x uses single-dash flags: -host, -port, -upload-dir, etc.
-if [ -n "$TUSD_HOOK_SECRET" ]; then
-    "$TUSD_BIN" \
-        -host="0.0.0.0" \
-        -port="$TUSD_PORT" \
-        -upload-dir="$TUSD_DATA" \
-        -hooks-http="$TUSD_HOOK_URL" \
-        -hooks-http-forward-headers="Hook-Secret:${TUSD_HOOK_SECRET}" \
-        -hooks-enabled-events="post-finish" \
-        &
-else
+# NOTE: tusd v2.x uses single-dash flags: -host, -port, -upload-dir, etc.    if [ -n "$TUSD_HOOK_SECRET" ]; then
+        "$TUSD_BIN" \
+            -host="0.0.0.0" \
+            -port="$TUSD_PORT" \
+            -upload-dir="$TUSD_DATA" \
+            -hooks-http="$TUSD_HOOK_URL" \
+            -hooks-http-forward-headers="Hook-Secret: $TUSD_HOOK_SECRET" \
+            -hooks-enabled-events="post-finish" \
+            &
+    else
     "$TUSD_BIN" \
         -host="0.0.0.0" \
         -port="$TUSD_PORT" \
